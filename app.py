@@ -2,25 +2,71 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import io
+import time
 
 st.set_page_config(page_title="Tedarik Simülatörü", layout="wide")
 
-# --- KİLİT EKRANI (ŞİFRELEME) ---
+# --- GLOBAL HAFIZA (IP ve Hatalı Giriş Takibi İçin) ---
+@st.cache_resource
+def get_auth_state():
+    # Sunucu kapanana kadar IP'leri ve bloke sürelerini hafızada tutar
+    return {"attempts": {}, "lockouts": {}}
+
+auth_state = get_auth_state()
+
+def get_user_ip():
+    try:
+        # Kullanıcının IP adresini yakalama (Streamlit Cloud üzerinden)
+        if hasattr(st, "context") and hasattr(st.context, "headers"):
+            ip = st.context.headers.get("X-Forwarded-For", "unknown_ip")
+            return ip.split(",")[0].strip()
+        return "unknown_ip"
+    except:
+        return "unknown_ip"
+
+# --- KİLİT EKRANI (ŞİFRELEME VE BLOKE MANTIGI) ---
 def check_password():
+    ip = get_user_ip()
+    current_time = time.time()
+    
+    # 1. KONTROL: Bu IP şu an bloke edilmiş mi?
+    if ip in auth_state["lockouts"]:
+        lockout_end = auth_state["lockouts"][ip]
+        if current_time < lockout_end:
+            kalan_dakika = int((lockout_end - current_time) / 60) + 1
+            st.error(f"🚨 Çok sayıda hatalı giriş yaptınız! Güvenlik nedeniyle sistem bu IP adresine {kalan_dakika} dakika boyunca bloke edilmiştir.")
+            return False
+        else:
+            # Süre dolduysa cezayı kaldır
+            del auth_state["lockouts"][ip]
+            auth_state["attempts"][ip] = 0
+
     def password_entered():
+        islem_zamani = time.time()
         # ŞİFREYİ BURADAN DEĞİŞTİREBİLİRSİN:
-        if st.session_state["password"] == "umitkrcl2026": 
+        if st.session_state["password"] == "Asker2026": 
             st.session_state["password_correct"] = True
             del st.session_state["password"]  
+            auth_state["attempts"][ip] = 0 # Başarılı girişte hataları sıfırla
         else:
             st.session_state["password_correct"] = False
+            # Hatalı giriş sayısını artır
+            auth_state["attempts"][ip] = auth_state["attempts"].get(ip, 0) + 1
+            
+            # 4 hataya ulaşıldıysa 15 dakika (900 saniye) banla!
+            if auth_state["attempts"][ip] >= 4:
+                auth_state["lockouts"][ip] = islem_zamani + 900
 
     if "password_correct" not in st.session_state:
         st.text_input("🔒 Simülatöre giriş için şifreyi yazıp Enter'a basın:", type="password", on_change=password_entered, key="password")
         return False
     elif not st.session_state["password_correct"]:
         st.text_input("🔒 Simülatöre giriş için şifreyi yazıp Enter'a basın:", type="password", on_change=password_entered, key="password")
-        st.error("❌ Hatalı şifre! Lütfen tekrar deneyin.")
+        
+        # Henüz bloke olmadıysa kalan hakkı göster
+        if auth_state["attempts"].get(ip, 0) < 4:
+            kalan_hak = 4 - auth_state["attempts"].get(ip, 0)
+            st.warning(f"❌ Hatalı şifre! Kalan deneme hakkınız: {kalan_hak}")
         return False
     return True
 
