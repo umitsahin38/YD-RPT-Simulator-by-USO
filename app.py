@@ -27,7 +27,7 @@ if "password_correct" not in st.session_state:
     st.stop()
 
 # --- UYGULAMA ---
-st.title("📦 RPT HESPALAMA PROGRAMI")
+st.title(" RPT HESAPLAMA PROGRAMI")
 
 # -- DOSYA YÜKLEME ALANI (ANA EKRAN) --
 yuklenen_dosya = st.file_uploader("Excel Dosyasını Yükleyin (.xlsx)", type=['xlsx'])
