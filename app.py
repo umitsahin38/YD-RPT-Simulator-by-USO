@@ -6,6 +6,16 @@ import time
 from datetime import datetime
 
 st.set_page_config(page_title="Tedarik Simülatörü", layout="wide")
+# --- MENÜ VE GEREKSİZ BUTONLARI GİZLEME (CSS) ---
+hide_streamlit_style = """
+    <style>
+    #MainMenu {visibility: hidden;}
+    header {visibility: hidden;}
+    footer {visibility: hidden;}
+    .stDeployButton {display:none;}
+    </style>
+"""
+st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 
 # --- GLOBAL HAFIZA (IP ve Hatalı Giriş Takibi İçin) ---
 @st.cache_resource
