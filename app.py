@@ -94,11 +94,10 @@ if yuklenen_dosya:
                     ozet_listesi.append({"Kategori": kat, "Ürün Grubu": row['Ürün Grubu'], "Stok Kodu": row['SKU'], "Stok Adı": row['Ürün Adı'], "Periyot": q, "Adet": row[f"{q}_RPT"]})
     if ozet_listesi: st.dataframe(pd.DataFrame(ozet_listesi).pivot_table(index=['Kategori', 'Ürün Grubu', 'Stok Kodu', 'Stok Adı'], columns='Periyot', values='Adet', fill_value=0), use_container_width=True)
     
-    # EXCEL SIRALAMASI
+    # EXCEL SIRALAMASI (Arayüz gösterimi kaldırıldı, sadece Excel çıktısı için hazırlanıyor)
     cols = ['SKU', 'Ana Kategori', 'Ürün Grubu', 'Ürün Adı', 'Acilis_Stogu', 'Son_3_Ay_Ort_Satis'] + \
            [f"{ay}_Kapanis_Stogu" for ay in aylar_sim] + [f"{ay}_Cover_Gun" for ay in aylar_sim] + [f"{ay}_RPT" for ay in aylar_sim]
     
-    st.dataframe(df[cols], use_container_width=True)
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer: df[cols].to_excel(writer, index=False)
     st.download_button("📥 RPT Exceli İndir", output.getvalue(), "rpt_raporu.xlsx")
