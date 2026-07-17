@@ -4,9 +4,10 @@ import numpy as np
 import io
 from datetime import datetime
 
+# Sidebar her zaman açık kalsın
 st.set_page_config(page_title="Tedarik Simülatörü", layout="wide", initial_sidebar_state="expanded")
 
-# --- CSS: MENÜ GİZLEME ---
+# --- CSS ---
 hide_streamlit_style = """
     <style>
     #MainMenu {visibility: hidden;}
@@ -26,7 +27,10 @@ if "password_correct" not in st.session_state:
     st.stop()
 
 # --- UYGULAMA ---
-st.title("📦 RPT ve Cover Programı")
+st.title("📦 RPT ve Cover Simülatörü")
+
+# -- DOSYA YÜKLEME ALANI (ANA EKRAN) --
+yuklenen_dosya = st.file_uploader("Rapor Data Excel Dosyasını Yükle (.xlsx)", type=['xlsx'])
 
 if "gecici_kurallar" not in st.session_state: st.session_state["gecici_kurallar"] = []
 if "aktif_kurallar" not in st.session_state: st.session_state["aktif_kurallar"] = []
@@ -56,21 +60,18 @@ with st.sidebar:
     
     if st.button("➕ Kural Ekle"):
         if any(k["Ürün Grubu"] == secilen_grup for k in st.session_state["gecici_kurallar"]):
-            st.error("❌ Bu Gruba Ait Bir Kural Tanımlanmıştır!")
+            st.error("❌ Bu grup zaten listede!")
         else:
             st.session_state["gecici_kurallar"].append({"Ürün Grubu": secilen_grup, "Cover": ozel_cover, "MOQ": ozel_moq})
             st.rerun()
     
     if st.session_state["gecici_kurallar"]:
         st.write("Tanımlı Kurallar:")
-        # BAŞLIK SATIRI
-        h1, h2, h3, h4 = st.columns([1, 4, 2, 2])
-        h1.caption("Sil")
-        h2.caption("Ürün Grubu")
-        h3.caption("Min Cover")
-        h4.caption("MOQ")
-        
-        # VERİ SATIRLARI
+        cols = st.columns([1, 4, 2, 2])
+        cols[0].caption("Sil")
+        cols[1].caption("Grup")
+        cols[2].caption("Cover")
+        cols[3].caption("MOQ")
         for i, k in enumerate(st.session_state["gecici_kurallar"]):
             cols = st.columns([1, 4, 2, 2])
             if cols[0].button("➖", key=f"del_{i}"):
@@ -80,12 +81,37 @@ with st.sidebar:
             cols[2].write(k["Cover"])
             cols[3].write(k["MOQ"])
         
-        if st.button("✅ Kuralları Tanımla"):
+        if st.button("✅ Kuralları Tamamla"):
             st.session_state["aktif_kurallar"] = st.session_state["gecici_kurallar"].copy()
-            st.success("Kurallar ayarlandı!")
+            st.success("Kurallar başarıyla ayarlandı!")
             
     st.markdown("---")
     mevsimsellik_df = st.data_editor(pd.DataFrame({"Ay": aylar_sim, "Katsayi": katsayilar}), hide_index=True, key="mevsim_editor")
     mevsimsellik = dict(zip(mevsimsellik_df["Ay"], mevsimsellik_df["Katsayi"]))
 
-# Simülasyon kodun aynı kalıyor...
+# Simülasyon
+if yuklenen_dosya:
+    df = pd.read_excel(yuklenen_dosya, header=1).rename(columns={'Ürün Kodu': 'SKU', 'Toplam Stok': 'Acilis_Stogu', 'Son 3 Ay Ort Satış': 'Son_3_Ay_Ort_Satis'})
+    def run(df):
+        h_gun, m_moq = np.full(len(df), v_hedef, float), np.full(len(df), v_moq, float)
+        for k in st.session_state["aktif_kurallar"]:
+            mask = df['Ürün Grubu'] == k["Ürün Grubu"]
+            h_gun[mask], m_moq[mask] = float(k["Cover"]), float(k["MOQ"])
+        devreden, ort_satis = df['Acilis_Stogu'].fillna(0).to_numpy(float), df['Son_3_Ay_Ort_Satis'].fillna(0).to_numpy(float)
+        for i, ay in enumerate(aylar_sim):
+            satis = ort_satis * mevsimsellik[ay]
+            df[f'{ay}_Beklenen_Satis'] = satis
+            baslangic = devreden + (df[int(ay)].fillna(0).to_numpy(float) if int(ay) in df.columns else np.zeros(len(df)))
+            df[f'{ay}_RPT'] = np.where(i >= lead, np.where(((h_gun/30.0)*ort_satis)-baslangic <= 0, 0, np.where(((h_gun/30.0)*ort_satis)-baslangic <= m_moq, m_moq, np.ceil((((h_gun/30.0)*ort_satis)-baslangic)/v_kat)*v_kat)), 0)
+            df[f'{ay}_Kapanis_Stogu'] = np.maximum(baslangic + df[f'{ay}_RPT'] - satis, 0)
+            df[f'{ay}_Cover_Gun'] = np.where(ort_satis > 0, ((baslangic + df[f'{ay}_RPT']) / ort_satis) * 30, 999)
+            devreden = df[f'{ay}_Kapanis_Stogu'].to_numpy()
+    run(df)
+    
+    cols = ['SKU', 'Ana Kategori', 'Ürün Grubu', 'Ürün Adı', 'Acilis_Stogu', 'Son_3_Ay_Ort_Satis'] + \
+           [f"{ay}_Beklenen_Satis" for ay in aylar_sim] + [f"{ay}_Kapanis_Stogu" for ay in aylar_sim] + \
+           [f"{ay}_Cover_Gun" for ay in aylar_sim] + [f"{ay}_RPT" for ay in aylar_sim]
+    st.dataframe(df[cols])
+    output = io.BytesIO()
+    df[cols].to_excel(output, index=False)
+    st.download_button("📥 Excel İndir", output.getvalue(), f"{datetime.now().strftime('%d.%m.%y')}_rpt_dosyası.xlsx")
