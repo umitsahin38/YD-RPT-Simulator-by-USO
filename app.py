@@ -30,7 +30,7 @@ if "password_correct" not in st.session_state:
 st.title("📦 RPT HESPALAMA PROGRAMI")
 
 # -- DOSYA YÜKLEME ALANI (ANA EKRAN) --
-yuklenen_dosya = st.file_uploader("Rapor Data Excel Dosyasını Yükleyin (.xlsx)", type=['xlsx'])
+yuklenen_dosya = st.file_uploader("Excel Dosyasını Yükleyin (.xlsx)", type=['xlsx'])
 
 if "gecici_kurallar" not in st.session_state: st.session_state["gecici_kurallar"] = []
 if "aktif_kurallar" not in st.session_state: st.session_state["aktif_kurallar"] = []
