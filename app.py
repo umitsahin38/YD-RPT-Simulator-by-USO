@@ -56,20 +56,29 @@ with st.sidebar:
     
     if st.button("➕ Kural Ekle"):
         if any(k["Ürün Grubu"] == secilen_grup for k in st.session_state["gecici_kurallar"]):
-            st.error("❌ Bu ürün grubuna zaten kural tanımlanmış!")
+            st.error("❌ Bu grup zaten listede!")
         else:
             st.session_state["gecici_kurallar"].append({"Ürün Grubu": secilen_grup, "Cover": ozel_cover, "MOQ": ozel_moq})
             st.rerun()
     
     if st.session_state["gecici_kurallar"]:
         st.write("Tanımlı Kurallar:")
-        # Tablo Görünümü
+        # BAŞLIK SATIRI
+        h1, h2, h3, h4 = st.columns([1, 4, 2, 2])
+        h1.caption("Sil")
+        h2.caption("Grup")
+        h3.caption("Cover")
+        h4.caption("MOQ")
+        
+        # VERİ SATIRLARI
         for i, k in enumerate(st.session_state["gecici_kurallar"]):
-            col1, col2, col3, col4 = st.columns([1, 4, 2, 2])
-            col1.button("➖", key=f"del_{i}", on_click=lambda idx=i: st.session_state["gecici_kurallar"].pop(idx))
-            col2.write(k["Ürün Grubu"])
-            col3.write(k["Cover"])
-            col4.write(k["MOQ"])
+            cols = st.columns([1, 4, 2, 2])
+            if cols[0].button("➖", key=f"del_{i}"):
+                st.session_state["gecici_kurallar"].pop(i)
+                st.rerun()
+            cols[1].write(k["Ürün Grubu"])
+            cols[2].write(k["Cover"])
+            cols[3].write(k["MOQ"])
         
         if st.button("✅ Kuralları Tamamla"):
             st.session_state["aktif_kurallar"] = st.session_state["gecici_kurallar"].copy()
@@ -79,8 +88,4 @@ with st.sidebar:
     mevsimsellik_df = st.data_editor(pd.DataFrame({"Ay": aylar_sim, "Katsayi": katsayilar}), hide_index=True, key="mevsim_editor")
     mevsimsellik = dict(zip(mevsimsellik_df["Ay"], mevsimsellik_df["Katsayi"]))
 
-# Simülasyon (Aynı kalıyor)
-file = st.file_uploader("Excel Yükle", type=['xlsx'])
-if file:
-    df = pd.read_excel(file, header=1).rename(columns={'Ürün Kodu': 'SKU', 'Toplam Stok': 'Acilis_Stogu', 'Son 3 Ay Ort Satış': 'Son_3_Ay_Ort_Satis'})
-    # ... simülasyon kodun ...
+# Simülasyon kodun aynı kalıyor...
