@@ -4,6 +4,31 @@ import numpy as np
 import io
 
 st.set_page_config(page_title="Tedarik Simülatörü", layout="wide")
+
+# --- KİLİT EKRANI (ŞİFRELEME) ---
+def check_password():
+    def password_entered():
+        # ŞİFREYİ BURADAN DEĞİŞTİREBİLİRSİN:
+        if st.session_state["password"] == "umitkrcl2026": 
+            st.session_state["password_correct"] = True
+            del st.session_state["password"]  
+        else:
+            st.session_state["password_correct"] = False
+
+    if "password_correct" not in st.session_state:
+        st.text_input("🔒 Simülatöre giriş için şifreyi yazıp Enter'a basın:", type="password", on_change=password_entered, key="password")
+        return False
+    elif not st.session_state["password_correct"]:
+        st.text_input("🔒 Simülatöre giriş için şifreyi yazıp Enter'a basın:", type="password", on_change=password_entered, key="password")
+        st.error("❌ Hatalı şifre! Lütfen tekrar deneyin.")
+        return False
+    return True
+
+# Şifre doğru girilmezse kodun geri kalanı ASLA çalışmaz
+if not check_password():
+    st.stop()
+
+# --- ŞİFRE DOĞRUYSA AÇILACAK ASIL UYGULAMA ---
 st.title("📦 RPT ve Cover Simülatörü (Varış Planlaması)")
 
 # 1) SIDEBAR: PARAMETRELER VE MEVSİMSELLİK
@@ -22,7 +47,6 @@ with st.sidebar:
     mevsim_df = pd.DataFrame({"Ay": aylar_sim, "Katsayi": varsayilan_katsayilar})
     mevsimsellik_df = st.data_editor(mevsim_df, hide_index=True)
     
-    # KAYDET BUTONU EKLENDİ
     if st.button("💾 Katsayıları Kaydet / Uygula"):
         st.success("Mevsimsellik katsayıları başarıyla güncellendi!")
         
@@ -41,7 +65,6 @@ if yuklenen_dosya is not None:
         ort_satis = df['Son_3_Ay_Ort_Satis'].fillna(0).to_numpy(dtype=float)
         
         for i, ay in enumerate(aylar_sim):
-            # Mevsimsellikle çarpılan o ayki satışı tabloya ekle
             satis = ort_satis * mevsimsellik[ay]
             df[f'{ay}_Beklenen_Satis'] = satis 
             
@@ -61,7 +84,6 @@ if yuklenen_dosya is not None:
             kullanilabilir = baslangic + siparis
             df[f'{ay}_Cover_Gun'] = np.where(ort_satis > 0, (kullanilabilir / ort_satis) * 30, 999)
             
-            # Kapanış stoğundan o ayki dinamik satışı düşüyoruz
             kapanis = np.maximum(kullanilabilir - satis, 0)
             df[f'{ay}_Kapanis_Stogu'] = kapanis
             devreden = kapanis
@@ -69,7 +91,6 @@ if yuklenen_dosya is not None:
     df_kuralli = df_ana.copy()
     simulasyonu_calistir(df_kuralli)
     
-    # Bloklu sıralama güncellendi
     base = ['SKU', 'Ana Kategori', 'Ürün Grubu', 'Ürün Adı', 'Acilis_Stogu', 'Son_3_Ay_Ort_Satis']
     cols = base + \
            [f"{ay}_Beklenen_Satis" for ay in aylar_sim] + \
