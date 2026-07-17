@@ -6,10 +6,11 @@ from datetime import datetime
 
 st.set_page_config(page_title="RPT HESAPLAMA PROGRAMI", layout="wide", initial_sidebar_state="expanded")
 
-# --- CSS: SADECE GEREKSİZLERİ GİZLE ---
+# --- CSS ---
 hide_streamlit_style = """
 <style>
     #MainMenu {visibility: hidden;} footer {visibility: hidden;} .stDeployButton {display:none;}
+    button[kind="header"] {display: none;}
 </style>
 """
 st.markdown(hide_streamlit_style, unsafe_allow_html=True)
@@ -28,9 +29,14 @@ yuklenen_dosya = st.file_uploader("Rapor Data Excel Dosyasını Yükleyin (.xlsx
 if "gecici_kurallar" not in st.session_state: st.session_state["gecici_kurallar"] = []
 if "aktif_kurallar" not in st.session_state: st.session_state["aktif_kurallar"] = []
 
-# Tarih hesaplama
+# --- TAKVİM (2027 ARALIK'A KADAR) ---
 bugun = datetime.now()
-aylar_sim = [f"{bugun.year + (i // 12)}{((bugun.month + i - 1) % 12 + 1):02d}" for i in range(12)]
+bitis_tarihi = datetime(2027, 12, 1)
+ay_farki = (bitis_tarihi.year - bugun.year) * 12 + (bitis_tarihi.month - bugun.month) + 1
+aylar_sim = []
+for i in range(ay_farki):
+    d = datetime(bugun.year, bugun.month, 1) + pd.DateOffset(months=i)
+    aylar_sim.append(d.strftime("%Y%m"))
 
 # Sidebar
 with st.sidebar:
@@ -58,7 +64,8 @@ with st.sidebar:
         if st.button("✅ Kuralları Onayla"): st.session_state["aktif_kurallar"] = st.session_state["gecici_kurallar"].copy(); st.success("Kurallar ayarlandı!")
             
     st.markdown("---")
-    mevsimsellik_df = st.data_editor(pd.DataFrame({"Ay": aylar_sim, "Katsayi": [1.0]*12}), hide_index=True, key="mevsim_editor")
+    # Dinamik tablo (kaç ay ise o kadar satır)
+    mevsimsellik_df = st.data_editor(pd.DataFrame({"Ay": aylar_sim, "Katsayi": [1.0]*len(aylar_sim)}), hide_index=True, key="mevsim_editor")
     mevsimsellik = dict(zip(mevsimsellik_df["Ay"], mevsimsellik_df["Katsayi"]))
 
 # Simülasyon
@@ -71,7 +78,7 @@ if yuklenen_dosya:
     
     devreden, ort_satis = df['Acilis_Stogu'].fillna(0).to_numpy(float), df['Son_3_Ay_Ort_Satis'].fillna(0).to_numpy(float)
     for i, ay in enumerate(aylar_sim):
-        satis = ort_satis * mevsimsellik[ay]
+        satis = ort_satis * mevsimsellik.get(ay, 1.0)
         df[f'{ay}_Beklenen_Satis'] = satis
         baslangic = devreden + (df[int(ay)].fillna(0).to_numpy(float) if int(ay) in df.columns else np.zeros(len(df)))
         df[f'{ay}_RPT'] = np.where(i >= lead, np.where(((h_gun/30.0)*ort_satis)-baslangic <= 0, 0, np.where(((h_gun/30.0)*ort_satis)-baslangic <= m_moq, m_moq, np.ceil((((h_gun/30.0)*ort_satis)-baslangic)/v_kat)*v_kat)), 0)
@@ -79,10 +86,10 @@ if yuklenen_dosya:
         df[f'{ay}_Cover_Gun'] = np.where(ort_satis > 0, ((baslangic + df[f'{ay}_RPT']) / ort_satis) * 30, 999)
         devreden = df[f'{ay}_Kapanis_Stogu'].to_numpy()
     
-    # EKRANDA ÖZET TABLO (Sadece arayüzde)
+    # EKRANDA ÖZET TABLO
     st.markdown("---")
     st.header("📊 Kategori Bazlı En Yüksek 5 RPT İhtiyacı")
-    periyotlar = {"2026Q3": ["202607", "202608", "202609"], "2026Q4": ["202610", "202611", "202612"], "2027Q1": ["202701", "202702", "202703"]}
+    periyotlar = {"2026Q3": ["202607", "202608", "202609"], "2026Q4": ["202610", "202611", "202612"], "2027Q1": ["202701", "202702", "202703"], "2027Q2": ["202704", "202705", "202706"], "2027Q3": ["202707", "202708", "202709"], "2027Q4": ["202710", "202711", "202712"]}
     ozet_listesi = []
     for kat in df['Ana Kategori'].unique():
         df_kat = df[df['Ana Kategori'] == kat].copy()
@@ -94,7 +101,7 @@ if yuklenen_dosya:
                     ozet_listesi.append({"Kategori": kat, "Ürün Grubu": row['Ürün Grubu'], "Stok Kodu": row['SKU'], "Stok Adı": row['Ürün Adı'], "Periyot": q, "Adet": row[f"{q}_RPT"]})
     if ozet_listesi: st.dataframe(pd.DataFrame(ozet_listesi).pivot_table(index=['Kategori', 'Ürün Grubu', 'Stok Kodu', 'Stok Adı'], columns='Periyot', values='Adet', fill_value=0), use_container_width=True)
 
-    # İNDİRİLECEK EXCEL FORMATI
+    # İNDİRİLECEK EXCEL
     cols = ['SKU', 'Ana Kategori', 'Ürün Grubu', 'Ürün Adı', 'Acilis_Stogu', 'Son_3_Ay_Ort_Satis'] + \
            [f"{ay}_Beklenen_Satis" for ay in aylar_sim] + [f"{ay}_Kapanis_Stogu" for ay in aylar_sim] + \
            [f"{ay}_Cover_Gun" for ay in aylar_sim] + [f"{ay}_RPT" for ay in aylar_sim]
