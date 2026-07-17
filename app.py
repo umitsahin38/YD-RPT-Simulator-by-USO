@@ -80,7 +80,7 @@ st.title("📦 RPT ve Cover Simülatörü (Varış Planlaması)")
 if "eklenen_kurallar" not in st.session_state:
     st.session_state["eklenen_kurallar"] = []
 
-# --- DARALAN TAKVİM VE MEVSİMSELLİK MANTIĞI ---
+# --- TAKVİM VE MEVSİMSELLİK MANTIĞI ---
 aylik_katsayilar = {
     1: 1.35, 2: 1.35, 3: 1.25, 4: 1.20, 5: 1.10, 6: 1.00,
     7: 1.00, 8: 1.00, 9: 1.25, 10: 1.40, 11: 1.80, 12: 1.40
@@ -107,27 +107,7 @@ with st.sidebar:
     
     st.markdown("---")
     st.header("🎯 Özel Ürün Grubu Kuralları")
-    
-    # SENİN GÖNDERDİĞİN LİSTE
-    urun_gruplari_listesi = [
-        "KEK KALIBI", "BANYO AKSESUARI", "DEKORATİF OBJE", "EV DÜZENLEYİCİLER", "HAVLU", 
-        "ŞİŞE/SÜRAHİ", "TEK PİKE", "DEKORATİF TEPSİ", "SALON AKSESUAR", "ÇERÇEVE", 
-        "KOZMETİK", "MUM", "SOFRA AKSESUARI", "SOFRA TEKSTİLİ", "SUPLA", "BAR AKSESUARI", 
-        "MUMLUK", "12 KİŞİLİK YEMEK TAKIMI", "ÇAY FİNCANI", "KAHVE FİNCANI", 
-        "KESME VE SUNUM TAHTASI", "SAKLAMA KABI", "HAVLU SETİ", "MUTFAK ÖNLÜĞÜ", 
-        "TEK ÇARŞAF", "TEK YASTIK KILIFI", "YASTIK", "YORGAN", "NEVRESİM PİKE TAKIMI", 
-        "AİLE BANYO SETİ", "HAMAM SETİ", "NEVRESİM BATTANİYE TAKIMI", "ÇARŞAF TAKIMI", 
-        "NEVRESİM YATAK ÖRTÜSÜ TAKIMI", "HALI", "PASPAS", "KİLİM", "TOST MAKİNESİ", 
-        "EĞLENCELİK VE YARDIMCI ÜRÜNLER", "FİLTRE KAHVE MAKİNESİ", "MUTFAK ROBOTU", 
-        "IZGARA", "KAHVE ÖĞÜTÜCÜ", "KATI MEYVE SIKACAĞI", "PIZZA MAKER", "SÜPÜRGE", 
-        "ÜTÜ", "YEMEK YAPMA MAKİNESİ", "SERVİS GEREÇLERİ", "TEK TENCERE-TAVA", 
-        "TENCERE SETİ", "FRENCH PRESS", "ÇAYDANLIK", "DÜDÜKLÜ TENCERE", 
-        "MUTFAK AKSESUARLARI", "BAHARAT DEĞİRMENİ", "BIÇAK SETİ", "TEKLİ SERVİS ÜRÜNLERİ", 
-        "MUG", "6 KİŞİLİK KAHVALTI TAKIMI", "ÇAY SETİ", "SOFRA SERVİS", "TEKLİ ÇKB", 
-        "BARDAK GRUBU", "DİĞER", "6 KİŞİLİK ÇKB TAKIMI", "TEPSİ", "12 KİŞİLİK ÇKB TAKIMI", 
-        "KAHVALTILIK", "PASTA TAKIMI", "MAMA TAKIMI"
-    ]
-    
+    urun_gruplari_listesi = ["KEK KALIBI", "BANYO AKSESUARI", "DEKORATİF OBJE", "EV DÜZENLEYİCİLER", "HAVLU", "ŞİŞE/SÜRAHİ", "TEK PİKE", "DEKORATİF TEPSİ", "SALON AKSESUAR", "ÇERÇEVE", "KOZMETİK", "MUM", "SOFRA AKSESUARI", "SOFRA TEKSTİLİ", "SUPLA", "BAR AKSESUARI", "MUMLUK", "12 KİŞİLİK YEMEK TAKIMI", "ÇAY FİNCANI", "KAHVE FİNCANI", "KESME VE SUNUM TAHTASI", "SAKLAMA KABI", "HAVLU SETİ", "MUTFAK ÖNLÜĞÜ", "TEK ÇARŞAF", "TEK YASTIK KILIFI", "YASTIK", "YORGAN", "NEVRESİM PİKE TAKIMI", "AİLE BANYO SETİ", "HAMAM SETİ", "NEVRESİM BATTANİYE TAKIMI", "ÇARŞAF TAKIMI", "NEVRESİM YATAK ÖRTÜSÜ TAKIMI", "HALI", "PASPAS", "KİLİM", "TOST MAKİNESİ", "EĞLENCELİK VE YARDIMCI ÜRÜNLER", "FİLTRE KAHVE MAKİNESİ", "MUTFAK ROBOTU", "IZGARA", "KAHVE ÖĞÜTÜCÜ", "KATI MEYVE SIKACAĞI", "PIZZA MAKER", "SÜPÜRGE", "ÜTÜ", "YEMEK YAPMA MAKİNESİ", "SERVİS GEREÇLERİ", "TEK TENCERE-TAVA", "TENCERE SETİ", "FRENCH PRESS", "ÇAYDANLIK", "DÜDÜKLÜ TENCERE", "MUTFAK AKSESUARLARI", "BAHARAT DEĞİRMENİ", "BIÇAK SETİ", "TEKLİ SERVİS ÜRÜNLERİ", "MUG", "6 KİŞİLİK KAHVALTI TAKIMI", "ÇAY SETİ", "SOFRA SERVİS", "TEKLİ ÇKB", "BARDAK GRUBU", "DİĞER", "6 KİŞİLİK ÇKB TAKIMI", "TEPSİ", "12 KİŞİLİK ÇKB TAKIMI", "KAHVALTILIK", "PASTA TAKIMI", "MAMA TAKIMI"]
     secilen_grup = st.selectbox("🔍 Ürün Grubu Seçin", sorted(list(set(urun_gruplari_listesi))))
     ozel_cover = st.number_input(f"'{secilen_grup}' için Özel Cover", value=120, step=5)
     ozel_moq = st.number_input(f"'{secilen_grup}' için Özel MOQ", value=100, step=10)
@@ -136,10 +116,8 @@ with st.sidebar:
         mevcutlar = [k["Ürün Grubu"] for k in st.session_state["eklenen_kurallar"]]
         if secilen_grup in mevcutlar:
             for k in st.session_state["eklenen_kurallar"]:
-                if k["Ürün Grubu"] == secilen_grup:
-                    k["Cover"], k["MOQ"] = ozel_cover, ozel_moq
-        else:
-            st.session_state["eklenen_kurallar"].append({"Ürün Grubu": secilen_grup, "Cover": ozel_cover, "MOQ": ozel_moq})
+                if k["Ürün Grubu"] == secilen_grup: k["Cover"], k["MOQ"] = ozel_cover, ozel_moq
+        else: st.session_state["eklenen_kurallar"].append({"Ürün Grubu": secilen_grup, "Cover": ozel_cover, "MOQ": ozel_moq})
         st.rerun()
             
     if len(st.session_state["eklenen_kurallar"]) > 0:
@@ -148,7 +126,9 @@ with st.sidebar:
             
     st.markdown("---")
     mevsim_df = pd.DataFrame({"Ay": aylar_sim, "Katsayi": varsayilan_katsayilar})
-    mevsimsellik = dict(zip(st.data_editor(mevsim_df, hide_index=True)["Ay"], mevsimsellik_df["Katsayi"]))
+    # DÜZELTİLEN SATIR:
+    mevsimsellik_df = st.data_editor(mevsim_df, hide_index=True)
+    mevsimsellik = dict(zip(mevsimsellik_df["Ay"], mevsimsellik_df["Katsayi"]))
 
 # 2) SİMÜLASYON
 yuklenen_dosya = st.file_uploader("Rapor Data Excel Dosyasını Yükle (.xlsx)", type=['xlsx'])
@@ -158,11 +138,9 @@ if yuklenen_dosya is not None:
         n = len(df)
         devreden, ort_satis = df['Acilis_Stogu'].fillna(0).to_numpy(float), df['Son_3_Ay_Ort_Satis'].fillna(0).to_numpy(float)
         hedef_gun_dizisi, moq_dizisi = np.full(n, varsayilan_hedef_gun, float), np.full(n, varsayilan_moq, float)
-        
         for kural in st.session_state["eklenen_kurallar"]:
             mask = df['Ürün Grubu'] == kural["Ürün Grubu"]
             hedef_gun_dizisi[mask], moq_dizisi[mask] = float(kural["Cover"]), float(kural["MOQ"])
-        
         for i, ay in enumerate(aylar_sim):
             satis = ort_satis * mevsimsellik[ay]
             df[f'{ay}_Beklenen_Satis'] = satis
