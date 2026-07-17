@@ -107,7 +107,54 @@ if yuklenen_dosya:
             df[f'{ay}_Cover_Gun'] = np.where(ort_satis > 0, ((baslangic + df[f'{ay}_RPT']) / ort_satis) * 30, 999)
             devreden = df[f'{ay}_Kapanis_Stogu'].to_numpy()
     run(df)
+    # --- ÖZET TABLO MANTIĞI ---
+    st.markdown("---")
+    st.header("📊 Kategori Bazlı 3 Aylık RPT İhtiyaç Özeti (Top 5)")
     
+    # Q periyotlarını gruplandır
+    ozet_data = []
+    # Q haritalama: Ağustos-Eylül-Ekim vs. 3'erli grupla
+    aylar = aylar_sim
+    periyotlar = {
+        "2026Q3": ["202607", "202608", "202609"],
+        "2026Q4": ["202610", "202611", "202612"],
+        "2027Q1": ["202701", "202702", "202703"],
+        "2027Q2": ["202704", "202705", "202706"],
+        "2027Q3": ["202707", "202708", "202709"],
+        "2027Q4": ["202710", "202711", "202712"]
+    }
+    
+    # Her kategori için periyot bazlı en yüksek ihtiyaçlı 5 SKU'yu bul
+    df_ozet = df.copy()
+    ozet_listesi = []
+    
+    for kategori in df_ozet['Ana Kategori'].unique():
+        df_kat = df_ozet[df_ozet['Ana Kategori'] == kategori]
+        
+        # Her periyot için en yüksek RPT ihtiyacı olan ilk 5'i belirle
+        temp_dict = {"Ana Kategori": kategori}
+        for q, aylik_liste in periyotlar.items():
+            mevcut_aylar = [a for a in aylik_liste if f"{a}_RPT" in df_kat.columns]
+            if mevcut_aylar:
+                # Periyottaki toplam RPT'yi al
+                df_kat[f"{q}_Top_RPT"] = df_kat[[f"{a}_RPT" for a in mevcut_aylar]].sum(axis=1)
+                top_5 = df_kat.nlargest(5, f"{q}_Top_RPT")
+                
+                for idx, row in top_5.iterrows():
+                    ozet_listesi.append({
+                        "Ana Kategori": kategori,
+                        "Ürün Grubu": row['Ürün Grubu'],
+                        "Stok Kodu": row['SKU'],
+                        "Stok Adı": row['Ürün Adı'],
+                        "Periyot": q,
+                        "RPT Adeti": row[f"{q}_Top_RPT"]
+                    })
+
+    df_ozet_final = pd.DataFrame(ozet_listesi)
+    # Tabloyu istediğin formata çevir
+    pivot_df = df_ozet_final.pivot_table(index=['Ana Kategori', 'Ürün Grubu', 'Stok Kodu', 'Stok Adı'], 
+                                         columns='Periyot', values='RPT Adeti', fill_value=0)
+    st.dataframe(pivot_df)
     cols = ['SKU', 'Ana Kategori', 'Ürün Grubu', 'Ürün Adı', 'Acilis_Stogu', 'Son_3_Ay_Ort_Satis'] + \
            [f"{ay}_Beklenen_Satis" for ay in aylar_sim] + [f"{ay}_Kapanis_Stogu" for ay in aylar_sim] + \
            [f"{ay}_Cover_Gun" for ay in aylar_sim] + [f"{ay}_RPT" for ay in aylar_sim]
