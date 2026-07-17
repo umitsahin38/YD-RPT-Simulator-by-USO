@@ -5,7 +5,7 @@ import io
 from datetime import datetime
 
 # Sidebar her zaman açık kalsın
-st.set_page_config(page_title="Tedarik Simülatörü", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="RPT HESAPLAMA PROGRAMI", layout="wide", initial_sidebar_state="expanded")
 
 # --- CSS ---
 hide_streamlit_style = """
@@ -27,10 +27,10 @@ if "password_correct" not in st.session_state:
     st.stop()
 
 # --- UYGULAMA ---
-st.title("📦 RPT ve Cover Simülatörü")
+st.title("📦 RPT HESPALAMA PROGRAMI")
 
 # -- DOSYA YÜKLEME ALANI (ANA EKRAN) --
-yuklenen_dosya = st.file_uploader("Rapor Data Excel Dosyasını Yükle (.xlsx)", type=['xlsx'])
+yuklenen_dosya = st.file_uploader("Rapor Data Excel Dosyasını Yükleyin (.xlsx)", type=['xlsx'])
 
 if "gecici_kurallar" not in st.session_state: st.session_state["gecici_kurallar"] = []
 if "aktif_kurallar" not in st.session_state: st.session_state["aktif_kurallar"] = []
@@ -60,7 +60,7 @@ with st.sidebar:
     
     if st.button("➕ Kural Ekle"):
         if any(k["Ürün Grubu"] == secilen_grup for k in st.session_state["gecici_kurallar"]):
-            st.error("❌ Bu grup zaten listede!")
+            st.error("❌ Bu grupa ait kural bulunmaktadır")
         else:
             st.session_state["gecici_kurallar"].append({"Ürün Grubu": secilen_grup, "Cover": ozel_cover, "MOQ": ozel_moq})
             st.rerun()
@@ -69,8 +69,8 @@ with st.sidebar:
         st.write("Tanımlı Kurallar:")
         cols = st.columns([1, 4, 2, 2])
         cols[0].caption("Sil")
-        cols[1].caption("Grup")
-        cols[2].caption("Cover")
+        cols[1].caption("Ürün Grubu")
+        cols[2].caption("Min Cover")
         cols[3].caption("MOQ")
         for i, k in enumerate(st.session_state["gecici_kurallar"]):
             cols = st.columns([1, 4, 2, 2])
@@ -81,7 +81,7 @@ with st.sidebar:
             cols[2].write(k["Cover"])
             cols[3].write(k["MOQ"])
         
-        if st.button("✅ Kuralları Tamamla"):
+        if st.button("✅ Kuralları Onayla"):
             st.session_state["aktif_kurallar"] = st.session_state["gecici_kurallar"].copy()
             st.success("Kurallar başarıyla ayarlandı!")
             
@@ -114,4 +114,4 @@ if yuklenen_dosya:
     st.dataframe(df[cols])
     output = io.BytesIO()
     df[cols].to_excel(output, index=False)
-    st.download_button("📥 Excel İndir", output.getvalue(), f"{datetime.now().strftime('%d.%m.%y')}_rpt_dosyası.xlsx")
+    st.download_button("📥 RPT Exceli İndir", output.getvalue(), f"{datetime.now().strftime('%d.%m.%y')}_rpt_dosyası.xlsx")
