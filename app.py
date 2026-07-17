@@ -5,13 +5,13 @@ import io
 import time
 from datetime import datetime
 
-st.set_page_config(page_title="Tedarik Simülatörü", layout="wide")
+# Sidebar varsayılan olarak kapalı başlasın
+st.set_page_config(page_title="Tedarik Simülatörü", layout="wide", initial_sidebar_state="collapsed")
 
-# --- CSS: MENÜ GİZLEME ---
+# --- CSS: SADECE GEREKSİZ BUTONLARI GİZLE (Sidebar okunu bırak) ---
 hide_streamlit_style = """
     <style>
     #MainMenu {visibility: hidden;}
-    header {visibility: hidden;}
     footer {visibility: hidden;}
     .stDeployButton {display:none;}
     </style>
@@ -54,6 +54,8 @@ if not check_password(): st.stop()
 
 # --- UYGULAMA ---
 st.title("📦 RPT ve Cover Simülatörü")
+st.info("👈 Ayarları açmak için sol üstteki küçük oka (>) tıkla.")
+
 if "eklenen_kurallar" not in st.session_state: st.session_state["eklenen_kurallar"] = []
 
 # Takvim
@@ -71,7 +73,6 @@ with st.sidebar:
     secilen_grup = st.selectbox("Ürün Grubu", sorted(["KEK KALIBI", "BANYO AKSESUARI", "DEKORATİF OBJE", "EV DÜZENLEYİCİLER", "HAVLU", "ŞİŞE/SÜRAHİ", "TEK PİKE", "DEKORATİF TEPSİ", "SALON AKSESUAR", "ÇERÇEVE", "KOZMETİK", "MUM", "SOFRA AKSESUARI", "SOFRA TEKSTİLİ", "SUPLA", "BAR AKSESUARI", "MUMLUK", "12 KİŞİLİK YEMEK TAKIMI", "ÇAY FİNCANI", "KAHVE FİNCANI", "KESME VE SUNUM TAHTASI", "SAKLAMA KABI", "HAVLU SETİ", "MUTFAK ÖNLÜĞÜ", "TEK ÇARŞAF", "TEK YASTIK KILIFI", "YASTIK", "YORGAN", "NEVRESİM PİKE TAKIMI", "AİLE BANYO SETİ", "HAMAM SETİ", "NEVRESİM BATTANİYE TAKIMI", "ÇARŞAF TAKIMI", "NEVRESİM YATAK ÖRTÜSÜ TAKIMI", "HALI", "PASPAS", "KİLİM", "TOST MAKİNESİ", "EĞLENCELİK VE YARDIMCI ÜRÜNLER", "FİLTRE KAHVE MAKİNESİ", "MUTFAK ROBOTU", "IZGARA", "KAHVE ÖĞÜTÜCÜ", "KATI MEYVE SIKACAĞI", "PIZZA MAKER", "SÜPÜRGE", "ÜTÜ", "YEMEK YAPMA MAKİNESİ", "SERVİS GEREÇLERİ", "TEK TENCERE-TAVA", "TENCERE SETİ", "FRENCH PRESS", "ÇAYDANLIK", "DÜDÜKLÜ TENCERE", "MUTFAK AKSESUARLARI", "BAHARAT DEĞİRMENİ", "BIÇAK SETİ", "TEKLİ SERVİS ÜRÜNLERİ", "MUG", "6 KİŞİLİK KAHVALTI TAKIMI", "ÇAY SETİ", "SOFRA SERVİS", "TEKLİ ÇKB", "BARDAK GRUBU", "DİGER", "6 KİŞİLİK ÇKB TAKIMI", "TEPSİ", "12 KİŞİLİK ÇKB TAKIMI", "KAHVALTILIK", "PASTA TAKIMI", "MAMA TAKIMI"]))
     if st.button("➕ Kural Ekle"): st.session_state["eklenen_kurallar"].append({"Ürün Grubu": secilen_grup, "Cover": st.number_input("Cover", 120), "MOQ": st.number_input("MOQ", 100)})
     
-    # HATA DÜZELTMESİ: Tek bir editör tanımladık ve key verdik
     mevsim_df = pd.DataFrame({"Ay": aylar_sim, "Katsayi": katsayilar})
     mevsimsellik_df = st.data_editor(mevsim_df, hide_index=True, key="mevsim_editor")
     mevsimsellik = dict(zip(mevsimsellik_df["Ay"], mevsimsellik_df["Katsayi"]))
