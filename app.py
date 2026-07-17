@@ -6,14 +6,17 @@ from datetime import datetime
 
 st.set_page_config(page_title="RPT HESAPLAMA PROGRAMI", layout="wide", initial_sidebar_state="expanded")
 
+# --- CSS ---
 hide_streamlit_style = """
 <style>
     #MainMenu {visibility: hidden;} footer {visibility: hidden;} .stDeployButton {display:none;}
     button[kind="header"] {display: none;}
+    [data-testid="stDataFrame"] {color: #000000 !important;}
 </style>
 """
 st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 
+# --- GÜVENLİK ---
 if "password_correct" not in st.session_state:
     st.text_input("🔒 Şifreyi girin:", type="password", key="password")
     if st.session_state.get("password") == st.secrets["APP_PASSWORD"]:
@@ -71,10 +74,10 @@ if yuklenen_dosya:
     devreden, ort_satis = df['Acilis_Stogu'].fillna(0).to_numpy(float), df['Son_3_Ay_Ort_Satis'].fillna(0).to_numpy(float)
     for i, ay in enumerate(aylar_sim):
         satis = ort_satis * mevsimsellik.get(ay, 1.0)
-        df[f'{ay}_Beklenen_Satis'] = satis
         baslangic = devreden + (df[int(ay)].fillna(0).to_numpy(float) if int(ay) in df.columns else np.zeros(len(df)))
         df[f'{ay}_RPT'] = np.where(i >= lead, np.where(((h_gun/30.0)*ort_satis)-baslangic <= 0, 0, np.where(((h_gun/30.0)*ort_satis)-baslangic <= m_moq, m_moq, np.ceil((((h_gun/30.0)*ort_satis)-baslangic)/v_kat)*v_kat)), 0)
         df[f'{ay}_Kapanis_Stogu'] = np.maximum(baslangic + df[f'{ay}_RPT'] - satis, 0)
+        df[f'{ay}_Cover_Gun'] = np.where(ort_satis > 0, ((baslangic + df[f'{ay}_RPT']) / ort_satis) * 30, 999)
         devreden = df[f'{ay}_Kapanis_Stogu'].to_numpy()
     
     st.markdown("---")
@@ -90,8 +93,12 @@ if yuklenen_dosya:
                 for _, row in df_kat[df_kat[f"{q}_RPT"] > 0].nlargest(5, f"{q}_RPT").iterrows():
                     ozet_listesi.append({"Kategori": kat, "Ürün Grubu": row['Ürün Grubu'], "Stok Kodu": row['SKU'], "Stok Adı": row['Ürün Adı'], "Periyot": q, "Adet": row[f"{q}_RPT"]})
     if ozet_listesi: st.dataframe(pd.DataFrame(ozet_listesi).pivot_table(index=['Kategori', 'Ürün Grubu', 'Stok Kodu', 'Stok Adı'], columns='Periyot', values='Adet', fill_value=0), use_container_width=True)
-    st.dataframe(df, use_container_width=True)
     
+    # EXCEL SIRALAMASI
+    cols = ['SKU', 'Ana Kategori', 'Ürün Grubu', 'Ürün Adı', 'Acilis_Stogu', 'Son_3_Ay_Ort_Satis'] + \
+           [f"{ay}_Kapanis_Stogu" for ay in aylar_sim] + [f"{ay}_Cover_Gun" for ay in aylar_sim] + [f"{ay}_RPT" for ay in aylar_sim]
+    
+    st.dataframe(df[cols], use_container_width=True)
     output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer: df.to_excel(writer, index=False)
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer: df[cols].to_excel(writer, index=False)
     st.download_button("📥 RPT Exceli İndir", output.getvalue(), "rpt_raporu.xlsx")
