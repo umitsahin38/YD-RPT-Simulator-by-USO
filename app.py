@@ -5,7 +5,7 @@ import io
 from datetime import datetime
 
 # Sidebar her zaman açık kalsın
-st.set_page_config(page_title="RPT HESAPLAMA PROGRAMI (powered by uso)", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="RPT HESAPLAMA PROGRAMI", layout="wide", initial_sidebar_state="expanded")
 
 # --- CSS ---
 hide_streamlit_style = """
@@ -27,7 +27,7 @@ if "password_correct" not in st.session_state:
     st.stop()
 
 # --- UYGULAMA ---
-st.title(" RPT HESAPLAMA PROGRAMI")
+st.title(" RPT HESAPLAMA PROGRAMI  (powered by uso)")
 
 # -- DOSYA YÜKLEME ALANI (ANA EKRAN) --
 yuklenen_dosya = st.file_uploader("Excel Dosyasını Yükleyin (.xlsx)", type=['xlsx'])
