@@ -5,15 +5,16 @@ import io
 import time
 from datetime import datetime
 
-# Sidebar varsayılan olarak kapalı başlasın
-st.set_page_config(page_title="Tedarik Simülatörü", layout="wide", initial_sidebar_state="collapsed")
+# Sidebar her zaman açık kalsın (initial_sidebar_state="expanded")
+st.set_page_config(page_title="Tedarik Simülatörü", layout="wide", initial_sidebar_state="expanded")
 
-# --- CSS: SADECE GEREKSİZ BUTONLARI GİZLE (Sidebar okunu bırak) ---
+# --- CSS: MENÜ GİZLEME (Sidebar oku dahil her şeyi gizle) ---
 hide_streamlit_style = """
     <style>
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     .stDeployButton {display:none;}
+    button[kind="header"] {display: none;}
     </style>
 """
 st.markdown(hide_streamlit_style, unsafe_allow_html=True)
@@ -54,8 +55,6 @@ if not check_password(): st.stop()
 
 # --- UYGULAMA ---
 st.title("📦 RPT ve Cover Simülatörü")
-st.info("👈 Ayarları açmak için sol üstteki küçük oka (>) tıkla.")
-
 if "eklenen_kurallar" not in st.session_state: st.session_state["eklenen_kurallar"] = []
 
 # Takvim
@@ -69,12 +68,24 @@ for i in range(((2027 - bugun.year) * 12) + (12 - bugun.month) + 1):
 
 # Sidebar
 with st.sidebar:
-    v_hedef, v_moq, v_kat, lead = st.number_input("Hedef Cover", 150), st.number_input("MOQ", 250), st.number_input("Katsayı", 50), st.number_input("Tedarik Süresi", 3)
-    secilen_grup = st.selectbox("Ürün Grubu", sorted(["KEK KALIBI", "BANYO AKSESUARI", "DEKORATİF OBJE", "EV DÜZENLEYİCİLER", "HAVLU", "ŞİŞE/SÜRAHİ", "TEK PİKE", "DEKORATİF TEPSİ", "SALON AKSESUAR", "ÇERÇEVE", "KOZMETİK", "MUM", "SOFRA AKSESUARI", "SOFRA TEKSTİLİ", "SUPLA", "BAR AKSESUARI", "MUMLUK", "12 KİŞİLİK YEMEK TAKIMI", "ÇAY FİNCANI", "KAHVE FİNCANI", "KESME VE SUNUM TAHTASI", "SAKLAMA KABI", "HAVLU SETİ", "MUTFAK ÖNLÜĞÜ", "TEK ÇARŞAF", "TEK YASTIK KILIFI", "YASTIK", "YORGAN", "NEVRESİM PİKE TAKIMI", "AİLE BANYO SETİ", "HAMAM SETİ", "NEVRESİM BATTANİYE TAKIMI", "ÇARŞAF TAKIMI", "NEVRESİM YATAK ÖRTÜSÜ TAKIMI", "HALI", "PASPAS", "KİLİM", "TOST MAKİNESİ", "EĞLENCELİK VE YARDIMCI ÜRÜNLER", "FİLTRE KAHVE MAKİNESİ", "MUTFAK ROBOTU", "IZGARA", "KAHVE ÖĞÜTÜCÜ", "KATI MEYVE SIKACAĞI", "PIZZA MAKER", "SÜPÜRGE", "ÜTÜ", "YEMEK YAPMA MAKİNESİ", "SERVİS GEREÇLERİ", "TEK TENCERE-TAVA", "TENCERE SETİ", "FRENCH PRESS", "ÇAYDANLIK", "DÜDÜKLÜ TENCERE", "MUTFAK AKSESUARLARI", "BAHARAT DEĞİRMENİ", "BIÇAK SETİ", "TEKLİ SERVİS ÜRÜNLERİ", "MUG", "6 KİŞİLİK KAHVALTI TAKIMI", "ÇAY SETİ", "SOFRA SERVİS", "TEKLİ ÇKB", "BARDAK GRUBU", "DİGER", "6 KİŞİLİK ÇKB TAKIMI", "TEPSİ", "12 KİŞİLİK ÇKB TAKIMI", "KAHVALTILIK", "PASTA TAKIMI", "MAMA TAKIMI"]))
-    if st.button("➕ Kural Ekle"): st.session_state["eklenen_kurallar"].append({"Ürün Grubu": secilen_grup, "Cover": st.number_input("Cover", 120), "MOQ": st.number_input("MOQ", 100)})
+    st.header("⚙️ Genel Parametreler")
+    v_hedef = st.number_input("Hedef Cover", 150)
+    v_moq = st.number_input("MOQ", 250)
+    v_kat = st.number_input("Katsayı", 50)
+    lead = st.number_input("Tedarik Süresi", 3)
     
-    mevsim_df = pd.DataFrame({"Ay": aylar_sim, "Katsayi": katsayilar})
-    mevsimsellik_df = st.data_editor(mevsim_df, hide_index=True, key="mevsim_editor")
+    st.markdown("---")
+    st.subheader("Ürün Grubu Özel Parametreler") # İstediğin başlık
+    
+    secilen_grup = st.selectbox("Ürün Grubu Seçin", sorted(["KEK KALIBI", "BANYO AKSESUARI", "DEKORATİF OBJE", "EV DÜZENLEYİCİLER", "HAVLU", "ŞİŞE/SÜRAHİ", "TEK PİKE", "DEKORATİF TEPSİ", "SALON AKSESUAR", "ÇERÇEVE", "KOZMETİK", "MUM", "SOFRA AKSESUARI", "SOFRA TEKSTİLİ", "SUPLA", "BAR AKSESUARI", "MUMLUK", "12 KİŞİLİK YEMEK TAKIMI", "ÇAY FİNCANI", "KAHVE FİNCANI", "KESME VE SUNUM TAHTASI", "SAKLAMA KABI", "HAVLU SETİ", "MUTFAK ÖNLÜĞÜ", "TEK ÇARŞAF", "TEK YASTIK KILIFI", "YASTIK", "YORGAN", "NEVRESİM PİKE TAKIMI", "AİLE BANYO SETİ", "HAMAM SETİ", "NEVRESİM BATTANİYE TAKIMI", "ÇARŞAF TAKIMI", "NEVRESİM YATAK ÖRTÜSÜ TAKIMI", "HALI", "PASPAS", "KİLİM", "TOST MAKİNESİ", "EĞLENCELİK VE YARDIMCI ÜRÜNLER", "FİLTRE KAHVE MAKİNESİ", "MUTFAK ROBOTU", "IZGARA", "KAHVE ÖĞÜTÜCÜ", "KATI MEYVE SIKACAĞI", "PIZZA MAKER", "SÜPÜRGE", "ÜTÜ", "YEMEK YAPMA MAKİNESİ", "SERVİS GEREÇLERİ", "TEK TENCERE-TAVA", "TENCERE SETİ", "FRENCH PRESS", "ÇAYDANLIK", "DÜDÜKLÜ TENCERE", "MUTFAK AKSESUARLARI", "BAHARAT DEĞİRMENİ", "BIÇAK SETİ", "TEKLİ SERVİS ÜRÜNLERİ", "MUG", "6 KİŞİLİK KAHVALTI TAKIMI", "ÇAY SETİ", "SOFRA SERVİS", "TEKLİ ÇKB", "BARDAK GRUBU", "DİGER", "6 KİŞİLİK ÇKB TAKIMI", "TEPSİ", "12 KİŞİLİK ÇKB TAKIMI", "KAHVALTILIK", "PASTA TAKIMI", "MAMA TAKIMI"]))
+    ozel_cover = st.number_input("Özel Cover", 120)
+    ozel_moq = st.number_input("Özel MOQ", 100)
+    
+    if st.button("➕ Kural Ekle"): st.session_state["eklenen_kurallar"].append({"Ürün Grubu": secilen_grup, "Cover": ozel_cover, "MOQ": ozel_moq})
+    if st.session_state["eklenen_kurallar"]: st.dataframe(pd.DataFrame(st.session_state["eklenen_kurallar"]), hide_index=True)
+    
+    st.markdown("---")
+    mevsimsellik_df = st.data_editor(pd.DataFrame({"Ay": aylar_sim, "Katsayi": katsayilar}), hide_index=True, key="mevsim_editor")
     mevsimsellik = dict(zip(mevsimsellik_df["Ay"], mevsimsellik_df["Katsayi"]))
 
 # Simülasyon
@@ -98,10 +109,8 @@ if file:
     run(df)
     
     cols = ['SKU', 'Ana Kategori', 'Ürün Grubu', 'Ürün Adı', 'Acilis_Stogu', 'Son_3_Ay_Ort_Satis'] + \
-           [f"{ay}_Beklenen_Satis" for ay in aylar_sim] + \
-           [f"{ay}_Kapanis_Stogu" for ay in aylar_sim] + \
-           [f"{ay}_Cover_Gun" for ay in aylar_sim] + \
-           [f"{ay}_RPT" for ay in aylar_sim]
+           [f"{ay}_Beklenen_Satis" for ay in aylar_sim] + [f"{ay}_Kapanis_Stogu" for ay in aylar_sim] + \
+           [f"{ay}_Cover_Gun" for ay in aylar_sim] + [f"{ay}_RPT" for ay in aylar_sim]
     
     st.dataframe(df[cols])
     output = io.BytesIO()
