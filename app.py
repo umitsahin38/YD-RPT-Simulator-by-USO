@@ -3,20 +3,19 @@ import pandas as pd
 import numpy as np
 import io
 import time
+from datetime import datetime
 
 st.set_page_config(page_title="Tedarik Simülatörü", layout="wide")
 
 # --- GLOBAL HAFIZA (IP ve Hatalı Giriş Takibi İçin) ---
 @st.cache_resource
 def get_auth_state():
-    # Sunucu kapanana kadar IP'leri ve bloke sürelerini hafızada tutar
     return {"attempts": {}, "lockouts": {}}
 
 auth_state = get_auth_state()
 
 def get_user_ip():
     try:
-        # Kullanıcının IP adresini yakalama (Streamlit Cloud üzerinden)
         if hasattr(st, "context") and hasattr(st.context, "headers"):
             ip = st.context.headers.get("X-Forwarded-For", "unknown_ip")
             return ip.split(",")[0].strip()
@@ -29,7 +28,6 @@ def check_password():
     ip = get_user_ip()
     current_time = time.time()
     
-    # 1. KONTROL: Bu IP şu an bloke edilmiş mi?
     if ip in auth_state["lockouts"]:
         lockout_end = auth_state["lockouts"][ip]
         if current_time < lockout_end:
@@ -37,23 +35,21 @@ def check_password():
             st.error(f"🚨 Çok sayıda hatalı giriş yaptınız! Güvenlik nedeniyle sistem bu IP adresine {kalan_dakika} dakika boyunca bloke edilmiştir.")
             return False
         else:
-            # Süre dolduysa cezayı kaldır
             del auth_state["lockouts"][ip]
             auth_state["attempts"][ip] = 0
 
     def password_entered():
         islem_zamani = time.time()
-        # ŞİFREYİ BURADAN DEĞİŞTİREBİLİRSİN:
-        if st.session_state["password"] == "umitkrcl2026": 
+        
+        # Şifre Streamlit Secrets'tan okunuyor
+        if st.session_state["password"] == st.secrets["APP_PASSWORD"]: 
             st.session_state["password_correct"] = True
             del st.session_state["password"]  
-            auth_state["attempts"][ip] = 0 # Başarılı girişte hataları sıfırla
+            auth_state["attempts"][ip] = 0 
         else:
             st.session_state["password_correct"] = False
-            # Hatalı giriş sayısını artır
             auth_state["attempts"][ip] = auth_state["attempts"].get(ip, 0) + 1
             
-            # 4 hataya ulaşıldıysa 15 dakika (900 saniye) banla!
             if auth_state["attempts"][ip] >= 4:
                 auth_state["lockouts"][ip] = islem_zamani + 900
 
@@ -63,19 +59,46 @@ def check_password():
     elif not st.session_state["password_correct"]:
         st.text_input("🔒 Simülatöre giriş için şifreyi yazıp Enter'a basın:", type="password", on_change=password_entered, key="password")
         
-        # Henüz bloke olmadıysa kalan hakkı göster
         if auth_state["attempts"].get(ip, 0) < 4:
             kalan_hak = 4 - auth_state["attempts"].get(ip, 0)
             st.warning(f"❌ Hatalı şifre! Kalan deneme hakkınız: {kalan_hak}")
         return False
     return True
 
-# Şifre doğru girilmezse kodun geri kalanı ASLA çalışmaz
 if not check_password():
     st.stop()
 
 # --- ŞİFRE DOĞRUYSA AÇILACAK ASIL UYGULAMA ---
 st.title("📦 RPT ve Cover Simülatörü (Varış Planlaması)")
+
+# --- DARALAN TAKVİM VE MEVSİMSELLİK MANTIĞI (Aralık 2027 Hedefli) ---
+aylik_katsayilar = {
+    1: 1.35, 2: 1.35, 3: 1.25, 4: 1.20, 5: 1.10, 6: 1.00,
+    7: 1.00, 8: 1.00, 9: 1.25, 10: 1.40, 11: 1.80, 12: 1.40
+}
+
+bitis_yili = 2027
+bitis_ayi = 12
+
+bugun = datetime.now()
+aylar_sim = []
+varsayilan_katsayilar = []
+
+# Şu anki aydan, hedef bitiş tarihine kadar kaç ay kaldığını buluyoruz
+kalan_ay_sayisi = ((bitis_yili - bugun.year) * 12) + (bitis_ayi - bugun.month) + 1
+
+# Eğer sistem 2027 Aralık'tan sonra açılırsa hata vermemesi için en az 1 ay göster
+if kalan_ay_sayisi <= 0:
+    kalan_ay_sayisi = 1
+
+for i in range(kalan_ay_sayisi):
+    gecerli_ay = bugun.month + i
+    yil = bugun.year + (gecerli_ay - 1) // 12
+    ay = (gecerli_ay - 1) % 12 + 1
+    
+    ay_str = f"{yil}{ay:02d}"
+    aylar_sim.append(ay_str)
+    varsayilan_katsayilar.append(aylik_katsayilar[ay])
 
 # 1) SIDEBAR: PARAMETRELER VE MEVSİMSELLİK
 with st.sidebar:
@@ -86,10 +109,8 @@ with st.sidebar:
     lead_time = st.number_input("Tedarik Süresi / Donmuş Bölge (ay)", value=3, step=1)
     
     st.header("📅 Mevsimsellik Katsayıları")
-    aylar_sim = ['202607', '202608', '202609', '202610', '202611', '202612', 
-                 '202701', '202702', '202703', '202704', '202705', '202706']
-    varsayilan_katsayilar = [0.8, 1.0, 1.2, 1.5, 1.2, 1.0, 0.9, 0.9, 0.8, 1.0, 1.0, 1.0]
     
+    # Katsayıları dinamik listelerle bağlıyoruz
     mevsim_df = pd.DataFrame({"Ay": aylar_sim, "Katsayi": varsayilan_katsayilar})
     mevsimsellik_df = st.data_editor(mevsim_df, hide_index=True)
     
