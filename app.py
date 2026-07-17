@@ -30,6 +30,15 @@ st.title("📦 RPT ve Cover Simülatörü")
 
 if "aktif_kurallar" not in st.session_state: st.session_state["aktif_kurallar"] = []
 
+# Takvim
+aylik_katsayilar = {1: 1.35, 2: 1.35, 3: 1.25, 4: 1.20, 5: 1.10, 6: 1.00, 7: 1.00, 8: 1.00, 9: 1.25, 10: 1.40, 11: 1.80, 12: 1.40}
+bugun = datetime.now()
+aylar_sim, katsayilar = [], []
+for i in range(((2027 - bugun.year) * 12) + (12 - bugun.month) + 1):
+    gecerli = bugun.month + i
+    aylar_sim.append(f"{bugun.year + (gecerli - 1) // 12}{(gecerli - 1) % 12 + 1:02d}")
+    katsayilar.append(aylik_katsayilar[(gecerli - 1) % 12 + 1])
+
 # Sidebar
 with st.sidebar:
     st.header("⚙️ Genel Parametreler")
@@ -49,20 +58,22 @@ with st.sidebar:
         st.rerun()
     
     if st.session_state["aktif_kurallar"]:
-        st.write("Tanımlı Kurallar:")
-        for i, kural in enumerate(st.session_state["aktif_kurallar"]):
-            col1, col2 = st.columns([1, 4])
-            if col1.button("➖", key=f"del_{i}"):
-                st.session_state["aktif_kurallar"].pop(i)
-                st.rerun()
-            col2.write(f"{kural['Ürün Grubu']}: C={kural['Cover']}, M={kural['MOQ']}")
+        kural_df = pd.DataFrame(st.session_state["aktif_kurallar"])
+        st.table(kural_df) # Tablo olarak gösterim
         
+        if st.button("🗑️ Kural Sil (En sonuncuyu)"):
+            st.session_state["aktif_kurallar"].pop()
+            st.rerun()
+            
         if st.button("✅ Kuralları Tamamla"):
-            st.success("Kurallar başarıyla ayarlandı!")
+            st.success("Kurallar ayarlandı!")
+            
+    st.markdown("---")
+    mevsimsellik_df = st.data_editor(pd.DataFrame({"Ay": aylar_sim, "Katsayi": katsayilar}), hide_index=True, key="mevsim_editor")
+    mevsimsellik = dict(zip(mevsimsellik_df["Ay"], mevsimsellik_df["Katsayi"]))
 
 # Simülasyon
 file = st.file_uploader("Excel Yükle", type=['xlsx'])
 if file:
     df = pd.read_excel(file, header=1).rename(columns={'Ürün Kodu': 'SKU', 'Toplam Stok': 'Acilis_Stogu', 'Son 3 Ay Ort Satış': 'Son_3_Ay_Ort_Satis'})
-    # ... (Simülasyon mantığın aynı kalıyor, sadece aktif_kurallar listesini döngüde kullanıyorsun)
-    # Raporu indir...
+    # Simülasyon hesaplaman burada aynen devam eder...
