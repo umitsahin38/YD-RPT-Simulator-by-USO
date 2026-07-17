@@ -26,7 +26,7 @@ if "password_correct" not in st.session_state:
     st.stop()
 
 # --- UYGULAMA ---
-st.title("📦 RPT ve Cover Simülatörü")
+st.title("📦 RPT ve Cover Programı")
 
 if "gecici_kurallar" not in st.session_state: st.session_state["gecici_kurallar"] = []
 if "aktif_kurallar" not in st.session_state: st.session_state["aktif_kurallar"] = []
@@ -56,7 +56,7 @@ with st.sidebar:
     
     if st.button("➕ Kural Ekle"):
         if any(k["Ürün Grubu"] == secilen_grup for k in st.session_state["gecici_kurallar"]):
-            st.error("❌ Bu grup zaten listede!")
+            st.error("❌ Bu Gruba Ait Bir Kural Tanımlanmıştır!")
         else:
             st.session_state["gecici_kurallar"].append({"Ürün Grubu": secilen_grup, "Cover": ozel_cover, "MOQ": ozel_moq})
             st.rerun()
@@ -66,8 +66,8 @@ with st.sidebar:
         # BAŞLIK SATIRI
         h1, h2, h3, h4 = st.columns([1, 4, 2, 2])
         h1.caption("Sil")
-        h2.caption("Grup")
-        h3.caption("Cover")
+        h2.caption("Ürün Grubu")
+        h3.caption("Min Cover")
         h4.caption("MOQ")
         
         # VERİ SATIRLARI
@@ -80,7 +80,7 @@ with st.sidebar:
             cols[2].write(k["Cover"])
             cols[3].write(k["MOQ"])
         
-        if st.button("✅ Kuralları Tamamla"):
+        if st.button("✅ Kuralları Tanımla"):
             st.session_state["aktif_kurallar"] = st.session_state["gecici_kurallar"].copy()
             st.success("Kurallar ayarlandı!")
             
