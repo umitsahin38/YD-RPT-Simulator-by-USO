@@ -44,7 +44,7 @@ def check_password():
     def password_entered():
         islem_zamani = time.time()
         # ŞİFREYİ BURADAN DEĞİŞTİREBİLİRSİN:
-        if st.session_state["password"] == "Asker2026": 
+        if st.session_state["password"] == "umitkrcl2026": 
             st.session_state["password_correct"] = True
             del st.session_state["password"]  
             auth_state["attempts"][ip] = 0 # Başarılı girişte hataları sıfırla
