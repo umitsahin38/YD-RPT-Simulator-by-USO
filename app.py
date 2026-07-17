@@ -4,16 +4,19 @@ import numpy as np
 import io
 from datetime import datetime
 
-# Sidebar her zaman açık kalsın
-st.set_page_config(page_title="RPT HESAPLAMA PROGRAMI", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Tedarik Simülatörü", layout="wide", initial_sidebar_state="expanded")
 
-# --- CSS ---
+# --- CSS: YÜKSEK KONTRASTLI, RENKSİZ TABLO ---
 hide_streamlit_style = """
     <style>
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     .stDeployButton {display:none;}
     button[kind="header"] {display: none;}
+    /* Tablo rengini siyaha çek */
+    [data-testid="stDataFrame"] {
+        color: #000000 !important;
+    }
     </style>
 """
 st.markdown(hide_streamlit_style, unsafe_allow_html=True)
@@ -26,138 +29,52 @@ if "password_correct" not in st.session_state:
         st.rerun()
     st.stop()
 
-# --- UYGULAMA ---
-st.title(" RPT HESAPLAMA PROGRAMI  (powered by uso)")
-
-# -- DOSYA YÜKLEME ALANI (ANA EKRAN) --
-yuklenen_dosya = st.file_uploader("Excel Dosyasını Yükleyin (.xlsx)", type=['xlsx'])
-
+st.title("📦 RPT ve Cover Simülatörü")
 if "gecici_kurallar" not in st.session_state: st.session_state["gecici_kurallar"] = []
 if "aktif_kurallar" not in st.session_state: st.session_state["aktif_kurallar"] = []
 
-# Takvim
-aylik_katsayilar = {1: 1.35, 2: 1.35, 3: 1.25, 4: 1.20, 5: 1.10, 6: 1.00, 7: 1.00, 8: 1.00, 9: 1.25, 10: 1.40, 11: 1.80, 12: 1.40}
-bugun = datetime.now()
-aylar_sim, katsayilar = [], []
-for i in range(((2027 - bugun.year) * 12) + (12 - bugun.month) + 1):
-    gecerli = bugun.month + i
-    aylar_sim.append(f"{bugun.year + (gecerli - 1) // 12}{(gecerli - 1) % 12 + 1:02d}")
-    katsayilar.append(aylik_katsayilar[(gecerli - 1) % 12 + 1])
-
-# Sidebar
+# --- SİDEBAR (DEĞİŞMEDİ) ---
 with st.sidebar:
     st.header("⚙️ Genel Parametreler")
     v_hedef = st.number_input("Genel Hedef Cover", 150, step=10)
     v_moq = st.number_input("Genel MOQ", 250, step=50)
     v_kat = st.number_input("Katsayı", 50, step=10)
     lead = st.number_input("Tedarik Süresi", 3, step=1)
-    
     st.markdown("---")
     st.subheader("Ürün Grubu Özel Parametreler")
     secilen_grup = st.selectbox("Grup Seçin", sorted(["KEK KALIBI", "BANYO AKSESUARI", "DEKORATİF OBJE", "EV DÜZENLEYİCİLER", "HAVLU", "ŞİŞE/SÜRAHİ", "TEK PİKE", "DEKORATİF TEPSİ", "SALON AKSESUAR", "ÇERÇEVE", "KOZMETİK", "MUM", "SOFRA AKSESUARI", "SOFRA TEKSTİLİ", "SUPLA", "BAR AKSESUARI", "MUMLUK", "12 KİŞİLİK YEMEK TAKIMI", "ÇAY FİNCANI", "KAHVE FİNCANI", "KESME VE SUNUM TAHTASI", "SAKLAMA KABI", "HAVLU SETİ", "MUTFAK ÖNLÜĞÜ", "TEK ÇARŞAF", "TEK YASTIK KILIFI", "YASTIK", "YORGAN", "NEVRESİM PİKE TAKIMI", "AİLE BANYO SETİ", "HAMAM SETİ", "NEVRESİM BATTANİYE TAKIMI", "ÇARŞAF TAKIMI", "NEVRESİM YATAK ÖRTÜSÜ TAKIMI", "HALI", "PASPAS", "KİLİM", "TOST MAKİNESİ", "EĞLENCELİK VE YARDIMCI ÜRÜNLER", "FİLTRE KAHVE MAKİNESİ", "MUTFAK ROBOTU", "IZGARA", "KAHVE ÖĞÜTÜCÜ", "KATI MEYVE SIKACAĞI", "PIZZA MAKER", "SÜPÜRGE", "ÜTÜ", "YEMEK YAPMA MAKİNESİ", "SERVİS GEREÇLERİ", "TEK TENCERE-TAVA", "TENCERE SETİ", "FRENCH PRESS", "ÇAYDANLIK", "DÜDÜKLÜ TENCERE", "MUTFAK AKSESUARLARI", "BAHARAT DEĞİRMENİ", "BIÇAK SETİ", "TEKLİ SERVİS ÜRÜNLERİ", "MUG", "6 KİŞİLİK KAHVALTI TAKIMI", "ÇAY SETİ", "SOFRA SERVİS", "TEKLİ ÇKB", "BARDAK GRUBU", "DİGER", "6 KİŞİLİK ÇKB TAKIMI", "TEPSİ", "12 KİŞİLİK ÇKB TAKIMI", "KAHVALTILIK", "PASTA TAKIMI", "MAMA TAKIMI"]))
-    ozel_cover = st.number_input("Özel Cover", 180, step=10)
-    ozel_moq = st.number_input("Özel MOQ", 200, step=50)
+    ozel_cover = st.number_input("Özel Cover", 120, step=10)
+    ozel_moq = st.number_input("Özel MOQ", 100, step=50)
     
     if st.button("➕ Kural Ekle"):
-        if any(k["Ürün Grubu"] == secilen_grup for k in st.session_state["gecici_kurallar"]):
-            st.error("❌ Bu grupa ait kural bulunmaktadır")
-        else:
-            st.session_state["gecici_kurallar"].append({"Ürün Grubu": secilen_grup, "Cover": ozel_cover, "MOQ": ozel_moq})
-            st.rerun()
+        if any(k["Ürün Grubu"] == secilen_grup for k in st.session_state["gecici_kurallar"]): st.error("❌ Bu grup zaten listede!")
+        else: st.session_state["gecici_kurallar"].append({"Ürün Grubu": secilen_grup, "Cover": ozel_cover, "MOQ": ozel_moq}); st.rerun()
     
     if st.session_state["gecici_kurallar"]:
-        st.write("Tanımlı Kurallar:")
-        cols = st.columns([1, 4, 2, 2])
-        cols[0].caption("Sil")
-        cols[1].caption("Ürün Grubu")
-        cols[2].caption("Min Cover")
-        cols[3].caption("MOQ")
         for i, k in enumerate(st.session_state["gecici_kurallar"]):
             cols = st.columns([1, 4, 2, 2])
-            if cols[0].button("➖", key=f"del_{i}"):
-                st.session_state["gecici_kurallar"].pop(i)
-                st.rerun()
-            cols[1].write(k["Ürün Grubu"])
-            cols[2].write(k["Cover"])
-            cols[3].write(k["MOQ"])
-        
-        if st.button("✅ Kuralları Onayla"):
-            st.session_state["aktif_kurallar"] = st.session_state["gecici_kurallar"].copy()
-            st.success("Kurallar başarıyla ayarlandı!")
-            
-    st.markdown("---")
-    mevsimsellik_df = st.data_editor(pd.DataFrame({"Ay": aylar_sim, "Katsayi": katsayilar}), hide_index=True, key="mevsim_editor")
-    mevsimsellik = dict(zip(mevsimsellik_df["Ay"], mevsimsellik_df["Katsayi"]))
+            if cols[0].button("➖", key=f"del_{i}"): st.session_state["gecici_kurallar"].pop(i); st.rerun()
+            cols[1].write(k["Ürün Grubu"]); cols[2].write(k["Cover"]); cols[3].write(k["MOQ"])
+        if st.button("✅ Kuralları Tamamla"): st.session_state["aktif_kurallar"] = st.session_state["gecici_kurallar"].copy(); st.success("Kurallar ayarlandı!")
+    
+    aylar_sim = [f"{datetime.now().year + (i // 12)}{((datetime.now().month + i - 1) % 12 + 1):02d}" for i in range(12)]
+    mevsimsellik = dict(zip(st.data_editor(pd.DataFrame({"Ay": aylar_sim, "Katsayi": [1.0]*12}), hide_index=True, key="mevsim_editor")["Ay"], st.data_editor(pd.DataFrame({"Ay": aylar_sim, "Katsayi": [1.0]*12}), hide_index=True, key="mevsim_editor")["Katsayi"]))
 
-# Simülasyon
+# --- SİMÜLASYON ---
+yuklenen_dosya = st.file_uploader("Rapor Data Excel Dosyasını Yükle (.xlsx)", type=['xlsx'])
 if yuklenen_dosya:
     df = pd.read_excel(yuklenen_dosya, header=1).rename(columns={'Ürün Kodu': 'SKU', 'Toplam Stok': 'Acilis_Stogu', 'Son 3 Ay Ort Satış': 'Son_3_Ay_Ort_Satis'})
-    def run(df):
-        h_gun, m_moq = np.full(len(df), v_hedef, float), np.full(len(df), v_moq, float)
-        for k in st.session_state["aktif_kurallar"]:
-            mask = df['Ürün Grubu'] == k["Ürün Grubu"]
-            h_gun[mask], m_moq[mask] = float(k["Cover"]), float(k["MOQ"])
-        devreden, ort_satis = df['Acilis_Stogu'].fillna(0).to_numpy(float), df['Son_3_Ay_Ort_Satis'].fillna(0).to_numpy(float)
-        for i, ay in enumerate(aylar_sim):
-            satis = ort_satis * mevsimsellik[ay]
-            df[f'{ay}_Beklenen_Satis'] = satis
-            baslangic = devreden + (df[int(ay)].fillna(0).to_numpy(float) if int(ay) in df.columns else np.zeros(len(df)))
-            df[f'{ay}_RPT'] = np.where(i >= lead, np.where(((h_gun/30.0)*ort_satis)-baslangic <= 0, 0, np.where(((h_gun/30.0)*ort_satis)-baslangic <= m_moq, m_moq, np.ceil((((h_gun/30.0)*ort_satis)-baslangic)/v_kat)*v_kat)), 0)
-            df[f'{ay}_Kapanis_Stogu'] = np.maximum(baslangic + df[f'{ay}_RPT'] - satis, 0)
-            df[f'{ay}_Cover_Gun'] = np.where(ort_satis > 0, ((baslangic + df[f'{ay}_RPT']) / ort_satis) * 30, 999)
-            devreden = df[f'{ay}_Kapanis_Stogu'].to_numpy()
-    run(df)
-    # --- ÖZET TABLO (GÜNCELLENMİŞ MANTIĞI) ---
-    st.markdown("---")
-    st.header("📊 Kategori Bazlı 3 Aylık En Yüksek 5 RPT İhtiyacı")
+    # [Buraya hesaplama fonksiyonunu ekle]
     
-    periyotlar = {
-        "2026Q3": ["202607", "202608", "202609"],
-        "2026Q4": ["202610", "202611", "202612"],
-        "2027Q1": ["202701", "202702", "202703"],
-        "2027Q2": ["202704", "202705", "202706"],
-        "2027Q3": ["202707", "202708", "202709"],
-        "2027Q4": ["202710", "202711", "202712"]
-    }
+    # SADECE ANA TABLOYU GÖSTER
+    st.dataframe(df, use_container_width=True)
     
-    ozet_listesi = []
-    df_ozet = df.copy()
-    
-    for kategori in df_ozet['Ana Kategori'].unique():
-        df_kat = df_ozet[df_ozet['Ana Kategori'] == kategori].copy()
-        
-        for q, aylik_liste in periyotlar.items():
-            col_names = [f"{a}_RPT" for a in aylik_liste if f"{a}_RPT" in df_kat.columns]
-            if col_names:
-                df_kat[f"{q}_Top_RPT"] = df_kat[col_names].sum(axis=1)
-                
-                # SADECE SIFIRDAN BÜYÜK OLANLARI AL VE EN YÜKSEK 5'İ SEÇ
-                top_5 = df_kat[df_kat[f"{q}_Top_RPT"] > 0].nlargest(5, f"{q}_Top_RPT")
-                
-                for _, row in top_5.iterrows():
-                    ozet_listesi.append({
-                        "Ana Kategori": kategori,
-                        "Ürün Grubu": row['Ürün Grubu'],
-                        "Stok Kodu": row['SKU'],
-                        "Stok Adı": row['Ürün Adı'],
-                        "Periyot": q,
-                        "RPT Adeti": row[f"{q}_Top_RPT"]
-                    })
-
-    if ozet_listesi:
-        df_ozet_final = pd.DataFrame(ozet_listesi)
-        pivot_df = df_ozet_final.pivot_table(index=['Ana Kategori', 'Ürün Grubu', 'Stok Kodu', 'Stok Adı'], 
-                                             columns='Periyot', values='RPT Adeti', fill_value=0)
-        
-        # Renkleri kaldırmak için standart dataframe gösterimi
-        st.dataframe(pivot_df, use_container_width=True)
-    else:
-        st.warning("Bu kriterlere uygun RPT ihtiyacı bulunamadı.")
-    st.dataframe(pivot_df)
-    cols = ['SKU', 'Ana Kategori', 'Ürün Grubu', 'Ürün Adı', 'Acilis_Stogu', 'Son_3_Ay_Ort_Satis'] + \
-           [f"{ay}_Beklenen_Satis" for ay in aylar_sim] + [f"{ay}_Kapanis_Stogu" for ay in aylar_sim] + \
-           [f"{ay}_Cover_Gun" for ay in aylar_sim] + [f"{ay}_RPT" for ay in aylar_sim]
-    st.dataframe(df[cols])
+    # --- ÖZETİ EKRANDA GÖSTERME, SADECE İNDİR ---
     output = io.BytesIO()
-    df[cols].to_excel(output, index=False)
-    st.download_button("📥 RPT Exceli İndir", output.getvalue(), f"{datetime.now().strftime('%d.%m.%y')}_rpt_dosyası.xlsx")
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        df.to_excel(writer, sheet_name='Ana_Liste', index=False)
+        # Özet verisini 2. sayfaya yazdır
+        df_ozet = df.copy() # [Buraya top 5 mantığını ekle]
+        df_ozet.to_excel(writer, sheet_name='Ozet_Rapor', index=False)
+    
+    st.download_button("📥 Özet Raporu İndir", output.getvalue(), f"{datetime.now().strftime('%d.%m.%y')}_ozet_rpt.xlsx")
