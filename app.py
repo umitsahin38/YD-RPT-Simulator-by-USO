@@ -1,25 +1,19 @@
-import streamlit as st  # Web arayüzü oluşturmak için gerekli kütüphane
-import pandas as pd      # Veri manipülasyonu ve Excel işlemleri için
-import numpy as np       # Matematiksel hesaplamalar ve dizi işlemleri için
-import io                # Bellek üzerinde Excel dosyası oluşturmak için
-import json              # Kural setlerini kaydetmek/yüklemek için
-from datetime import datetime  # Tarih hesaplamaları için
+import streamlit as st
+import pandas as pd
+import numpy as np
+import io
+from datetime import datetime
 
-# Web arayüzü düzenini geniş (wide) olarak ayarla
 st.set_page_config(page_title="RPT HESAPLAMA PROGRAMI", layout="wide", initial_sidebar_state="expanded")
 
-# Arayüzden gereksiz Streamlit öğelerini (footer, menü) gizlemek için CSS
-hide_streamlit_style = """
+st.markdown("""
 <style>
     #MainMenu {visibility: hidden;} footer {visibility: hidden;} .stDeployButton {display:none;}
     button[kind="header"] {display: none;}
-    [data-testid="stDataFrame"] {color: #000000 !important;}
 </style>
-"""
-st.markdown(hide_streamlit_style, unsafe_allow_html=True)
+""", unsafe_allow_html=True)
 
 # --- GÜVENLİK ---
-# Uygulamaya şifreli giriş koruması (DÜZELTME: yanlış şifre girildiğinde artık uyarı gösteriliyor)
 if "password_correct" not in st.session_state:
     girilen_sifre = st.text_input("🔒 Şifreyi girin:", type="password", key="password")
     if girilen_sifre:
@@ -32,180 +26,173 @@ if "password_correct" not in st.session_state:
 
 st.title("📦 RPT HESAPLAMA PROGRAMI")
 
+# --- SESSION STATE BAŞLANGIÇ DEĞERLERİ ---
+# Tüm parametreler session_state'de tutulur; böylece sidebar formu submit edilmese bile
+# v_tavan gibi değerler her rerun'da erişilebilir olur — AttributeError'ın kaynağı buydu.
+for k, v in {
+    "gecici_kurallar": [],
+    "aktif_kurallar": [],
+    "df_sonuc": None,
+    "urun_gruplari": [],
+    "p_hedef": 150,
+    "p_moq": 250,
+    "p_kat": 50,
+    "p_lead": 3,
+    "p_tavan": 220,
+}.items():
+    if k not in st.session_state:
+        st.session_state[k] = v
+
+# --- TAKVİM ---
+bugun = datetime.now()
+aylar_sim, default_katsayilar = [], []
+aylik_katsayilar = {1:1.35,2:1.35,3:1.25,4:1.20,5:1.10,6:1.00,7:1.00,8:1.00,9:1.25,10:1.40,11:1.80,12:1.40}
+for i in range(18):
+    d = datetime(bugun.year, bugun.month, 1) + pd.DateOffset(months=i)
+    aylar_sim.append(d.strftime("%Y%m"))
+    default_katsayilar.append(aylik_katsayilar.get(d.month, 1.0))
+
+def ceyrek_uret(aylar):
+    p = {}
+    for ay in aylar:
+        yil, ay_no = int(ay[:4]), int(ay[4:])
+        q = (ay_no - 1) // 3 + 1
+        p.setdefault(f"{yil}Q{q}", []).append(ay)
+    return p
+periyotlar = ceyrek_uret(aylar_sim)
+
 # --- YARDIMCI FONKSİYONLAR ---
 BEKLENEN_KOLONLAR = ['Ürün Kodu', 'Toplam Stok', 'Son 3 Ay Ort Satış', 'Ana Kategori', 'Ürün Grubu', 'Ürün Adı']
 
 @st.cache_data(show_spinner=False)
 def veriyi_yukle(dosya_bytes):
-    """Excel dosyasını okur ve gerekli kolon isimlerini standardize eder.
-    DÜZELTME: artık eksik kolon / bozuk dosya durumunda kullanıcıya anlaşılır hata veriyor,
-    uygulamayı çökertmek yerine None döndürüyor."""
     try:
         df = pd.read_excel(io.BytesIO(dosya_bytes), header=1)
     except Exception as e:
         st.error(f"❌ Excel dosyası okunamadı: {e}")
         return None
-
-    df = df.rename(columns={
-        'Ürün Kodu': 'SKU',
-        'Toplam Stok': 'Acilis_Stogu',
-        'Son 3 Ay Ort Satış': 'Son_3_Ay_Ort_Satis'
-    })
-
-    eksik = [k for k in ['SKU', 'Acilis_Stogu', 'Son_3_Ay_Ort_Satis', 'Ana Kategori', 'Ürün Grubu', 'Ürün Adı'] if k not in df.columns]
+    df = df.rename(columns={'Ürün Kodu':'SKU','Toplam Stok':'Acilis_Stogu','Son 3 Ay Ort Satış':'Son_3_Ay_Ort_Satis'})
+    eksik = [k for k in ['SKU','Acilis_Stogu','Son_3_Ay_Ort_Satis','Ana Kategori','Ürün Grubu','Ürün Adı'] if k not in df.columns]
     if eksik:
-        st.error(f"❌ Excel dosyasında beklenen kolonlar eksik: {', '.join(eksik)}\n\n"
-                 f"Beklenen kolon isimleri: {', '.join(BEKLENEN_KOLONLAR)}")
+        st.error(f"❌ Eksik kolonlar: {', '.join(eksik)}")
         return None
-
-    # Veri kalitesi uyarısı: satış verisi tamamen boş olan satır sayısı
-    eksik_satis_sayisi = df['Son_3_Ay_Ort_Satis'].isna().sum()
-    if eksik_satis_sayisi > 0:
-        st.warning(f"⚠️ {eksik_satis_sayisi} satırda satış verisi boş. Bu satırlar 0 satış olarak "
-                   f"hesaplanacak, RPT ihtiyacı yanlış çıkabilir — kaynak veriyi kontrol edin.")
+    bos = df['Son_3_Ay_Ort_Satis'].isna().sum()
+    if bos > 0:
+        st.warning(f"⚠️ {bos} satırda satış verisi boş — 0 satış olarak hesaplanacak.")
     return df
 
 
 def hesapla_rpt(df, aylar_sim, mevsimsellik, h_gun, m_moq, v_kat, lead, tavan_cover):
-    """Her ay için RPT (sipariş ihtiyacı) ve kapanış stoğunu hesaplar.
-
-    DÜZELTME (mevsimsellik): Hedef stok artık sadece 'ortalama satış' değil,
-    o ayın mevsimsellik katsayısıyla çarpılmış BEKLENEN satışa göre hesaplanıyor.
-    Böylece örneğin Kasım'a (katsayı 1.80) girerken hedef stok da yüksek sezona
-    göre büyütülüyor; eskiden hedef hep 'ortalama satış' baz alınıyordu ve
-    yüksek sezon öncesi ihtiyaç olduğundan düşük çıkabiliyordu.
-
-    Lead time mantığı: RPT, o ay için varış hedefi/adedi olarak yazılıyor
-    (kullanıcının onayladığı şekilde) — sipariş, o ayda depoya varması
-    planlanan miktar olarak ele alınıyor.
-
-    YENİ (cover tavanı): RPT miktarı, başlangıç stoğu + sipariş toplamı
-    'tavan_cover' gün karşılığı stoğu aşacak şekilde yazılmıyor. MOQ veya
-    katsayı yuvarlaması normalde daha yüksek bir miktar üretse bile, sipariş
-    bu tavanı aşmayacak şekilde otomatik kırpılıyor. Başlangıç stoğu tek
-    başına tavanın üstündeyse RPT = 0 yazılır.
+    """
+    Mevsimsellik: hedef stok = (cover/30) * ort_satis * mevsim_katsayisi
+    Cover tavanı: baslangic + rpt <= (tavan/30) * beklenen_satis
+    Lead time: RPT o ayda depoya varış adedi olarak yazılır (ilk 'lead' ay sıfır)
     """
     devreden = df['Acilis_Stogu'].fillna(0).to_numpy(float)
     ort_satis = df['Son_3_Ay_Ort_Satis'].fillna(0).to_numpy(float)
 
     for i, ay in enumerate(aylar_sim):
         kat = mevsimsellik.get(ay, 1.0)
-        beklenen_satis = ort_satis * kat  # o ayki mevsimselliğe göre beklenen satış
+        beklenen_satis = ort_satis * kat
         baslangic = devreden + (df[int(ay)].fillna(0).to_numpy(float) if int(ay) in df.columns else np.zeros(len(df)))
 
-        # DÜZELTME: hedef stok hesaplamasında ort_satis yerine beklenen_satis kullanılıyor
         hedef_stok = (h_gun / 30.0) * beklenen_satis
         ihtiyac = hedef_stok - baslangic
 
         rpt_ham = np.where(
             i >= lead,
-            np.where(
-                ihtiyac <= 0, 0,
-                np.where(ihtiyac <= m_moq, m_moq, np.ceil(ihtiyac / v_kat) * v_kat)
-            ),
+            np.where(ihtiyac <= 0, 0,
+                np.where(ihtiyac <= m_moq, m_moq, np.ceil(ihtiyac / v_kat) * v_kat)),
             0
         )
 
-        # YENİ: cover tavanı kırpması — baslangic + rpt, tavan stoğunu aşamaz
+        # Cover tavanı kırpması
         tavan_stok = (tavan_cover / 30.0) * beklenen_satis
-        kalan_kapasite = np.maximum(tavan_stok - baslangic, 0)
-        rpt = np.maximum(np.minimum(rpt_ham, kalan_kapasite), 0)
+        kalan = np.maximum(tavan_stok - baslangic, 0)
+        rpt = np.maximum(np.minimum(rpt_ham, kalan), 0)
 
         df[f'{ay}_RPT'] = rpt
         df[f'{ay}_Kapanis_Stogu'] = np.maximum(baslangic + rpt - beklenen_satis, 0)
         df[f'{ay}_Cover_Gun'] = np.where(ort_satis > 0, ((baslangic + rpt) / ort_satis) * 30, 999)
         devreden = df[f'{ay}_Kapanis_Stogu'].to_numpy()
-
     return df
 
-
-# Kural yönetimi için session_state tanımları
-if "gecici_kurallar" not in st.session_state: st.session_state["gecici_kurallar"] = []
-if "aktif_kurallar" not in st.session_state: st.session_state["aktif_kurallar"] = []
-if "df_sonuc" not in st.session_state: st.session_state["df_sonuc"] = None
-
-# --- TAKVİM (18 AYLIK DÖNGÜ) ---
-bugun = datetime.now()
-aylar_sim = []
-default_katsayilar = []
-aylik_katsayilar = {1: 1.35, 2: 1.35, 3: 1.25, 4: 1.20, 5: 1.10, 6: 1.00, 7: 1.00, 8: 1.00, 9: 1.25, 10: 1.40, 11: 1.80, 12: 1.40}
-
-for i in range(18):
-    d = datetime(bugun.year, bugun.month, 1) + pd.DateOffset(months=i)
-    aylar_sim.append(d.strftime("%Y%m"))
-    default_katsayilar.append(aylik_katsayilar.get(d.month, 1.0))
-
-# DÜZELTME: periyot listesi artık dinamik üretiliyor (2027Q4'e kadar), hardcoded 3 çeyrekle sınırlı değil
-def ceyrek_uret(aylar):
-    periyotlar = {}
-    for ay in aylar:
-        yil, ay_no = int(ay[:4]), int(ay[4:])
-        q = (ay_no - 1) // 3 + 1
-        anahtar = f"{yil}Q{q}"
-        periyotlar.setdefault(anahtar, []).append(ay)
-    return periyotlar
-
-periyotlar = ceyrek_uret(aylar_sim)
-
-# --- SIDEBAR (PARAMETRELER) ---
+# --- SIDEBAR ---
 with st.sidebar:
     st.header("⚙️ Genel Parametreler")
 
+    # Form submit edilince session_state güncellenir — değerler her rerun'da oradan okunur
     with st.form("parametre_formu"):
-        v_hedef = st.number_input("Genel Hedef Cover", 150, step=10)
-        v_moq = st.number_input("Genel MOQ", 250, step=50)
-        v_kat = st.number_input("Katsayı (Sipariş Yuvarlama Katı)", 50, step=10)
-        lead = st.number_input("Tedarik Süresi (ay)", 3, step=1)
-        # YENİ: cover tavanı — hiçbir SKU'nun cover günü bu değeri aşacak şekilde RPT yazılmaz
-        v_tavan = st.number_input("Cover Tavanı (gün) — bu üstüne RPT yazılmaz", 220, step=10)
-        parametre_kaydet = st.form_submit_button("💾 Genel Parametreleri Kaydet")
+        f_hedef = st.number_input("Genel Hedef Cover (gün)", value=st.session_state["p_hedef"], step=10)
+        f_moq   = st.number_input("Genel MOQ (adet)",         value=st.session_state["p_moq"],   step=50)
+        f_kat   = st.number_input("Sipariş Yuvarlama Katı",   value=st.session_state["p_kat"],   step=10)
+        f_lead  = st.number_input("Tedarik Süresi (ay)",      value=st.session_state["p_lead"],  step=1)
+        f_tavan = st.number_input("Cover Tavanı (gün)",       value=st.session_state["p_tavan"], step=10,
+                                   help="Hiçbir SKU'ya bu günün üstüne RPT yazılmaz")
+        if st.form_submit_button("💾 Parametreleri Kaydet"):
+            st.session_state["p_hedef"] = f_hedef
+            st.session_state["p_moq"]   = f_moq
+            st.session_state["p_kat"]   = f_kat
+            st.session_state["p_lead"]  = f_lead
+            st.session_state["p_tavan"] = f_tavan
+            st.session_state["df_sonuc"] = None  # parametreler değişti → yeniden hesapla
+            st.success("Kaydedildi.")
+
+    # Kısa alias — bunlar her rerun'da session_state'den güvenle okunur
+    v_hedef = st.session_state["p_hedef"]
+    v_moq   = st.session_state["p_moq"]
+    v_kat   = st.session_state["p_kat"]
+    v_lead  = st.session_state["p_lead"]
+    v_tavan = st.session_state["p_tavan"]
 
     st.markdown("---")
-    st.subheader("Ürün Grubu Özel Parametreler")
+    st.subheader("📋 Ürün Grubu Özel Parametreler")
 
-    # DÜZELTME: ürün grubu listesi artık yüklenen dosyadan dinamik çekiliyor.
-    # Dosya henüz yüklenmediyse boş liste gösteriliyor.
     grup_listesi = sorted(st.session_state.get("urun_gruplari", []))
     if grup_listesi:
         secilen_grup = st.selectbox("Grup Seçin", grup_listesi)
-        ozel_cover = st.number_input("Özel Cover", 120, step=10)
-        ozel_moq = st.number_input("Özel MOQ", 100, step=50)
+        col_c, col_m = st.columns(2)
+        ozel_cover = col_c.number_input("Min Cover", min_value=10, value=120, step=10)
+        ozel_moq   = col_m.number_input("MOQ (ad)",  min_value=0,  value=100, step=50)
 
-        if st.button("➕ Kural Ekle"):
+        if st.button("➕ Kural Ekle", use_container_width=True):
             if any(k["Ürün Grubu"] == secilen_grup for k in st.session_state["gecici_kurallar"]):
                 st.error("❌ Bu grup zaten listede!")
             else:
-                st.session_state["gecici_kurallar"].append({"Ürün Grubu": secilen_grup, "Cover": ozel_cover, "MOQ": ozel_moq})
+                st.session_state["gecici_kurallar"].append(
+                    {"Ürün Grubu": secilen_grup, "Cover": ozel_cover, "MOQ": ozel_moq}
+                )
                 st.rerun()
 
+        # Kural listesi — başlıklı tablo görünümü
         if st.session_state["gecici_kurallar"]:
+            st.markdown("---")
+            # Başlık satırı
+            h0, h1, h2, h3 = st.columns([0.7, 4, 1.8, 1.8])
+            h1.markdown("<p style='font-size:11px;font-weight:700;color:#888;margin:0;'>ÜRÜN GRUBU</p>",   unsafe_allow_html=True)
+            h2.markdown("<p style='font-size:11px;font-weight:700;color:#888;margin:0;'>MIN COVER</p>",    unsafe_allow_html=True)
+            h3.markdown("<p style='font-size:11px;font-weight:700;color:#888;margin:0;'>MOQ (AD)</p>",     unsafe_allow_html=True)
+            st.markdown("<hr style='margin:2px 0 6px 0;border:none;border-top:1px solid #ddd;'>", unsafe_allow_html=True)
+
             for i, k in enumerate(st.session_state["gecici_kurallar"]):
-                cols = st.columns([1, 4, 2, 2])
-                if cols[0].button("➖", key=f"del_{i}"):
+                c0, c1, c2, c3 = st.columns([0.7, 4, 1.8, 1.8])
+                if c0.button("✕", key=f"del_{i}", help="Sil"):
                     st.session_state["gecici_kurallar"].pop(i)
                     st.rerun()
-                cols[1].write(k["Ürün Grubu"]); cols[2].write(k["Cover"]); cols[3].write(k["MOQ"])
-            if st.button("✅ Kuralları Onayla"):
-                st.session_state["aktif_kurallar"] = st.session_state["gecici_kurallar"].copy()
-                st.session_state["df_sonuc"] = None  # kurallar değişti, eski RPT sonucu artık geçersiz
-                st.success("Kurallar ayarlandı! RPT'yi yeniden hesaplamayı unutmayın.")
+                c1.markdown(f"<p style='font-size:12px;margin:6px 0;'>{k['Ürün Grubu']}</p>", unsafe_allow_html=True)
+                c2.markdown(f"<p style='font-size:13px;font-weight:600;color:#1a73e8;margin:6px 0;'>{k['Cover']}</p>", unsafe_allow_html=True)
+                c3.markdown(f"<p style='font-size:13px;font-weight:600;color:#1a73e8;margin:6px 0;'>{k['MOQ']}</p>",   unsafe_allow_html=True)
 
-        # YENİ: Kural setlerini JSON olarak kaydet / yükle
-        st.markdown("---")
-        st.caption("Kural setini kaydet / yükle")
-        kural_json = json.dumps(st.session_state["aktif_kurallar"], ensure_ascii=False)
-        st.download_button("💾 Kuralları İndir (JSON)", kural_json, "rpt_kurallari.json")
-        yuklenen_kural = st.file_uploader("📂 Kural Dosyası Yükle", type=['json'], key="kural_yukle")
-        if yuklenen_kural is not None:
-            try:
-                st.session_state["aktif_kurallar"] = json.loads(yuklenen_kural.read())
-                st.success("Kurallar yüklendi!")
-            except Exception as e:
-                st.error(f"Kural dosyası okunamadı: {e}")
+            st.markdown("---")
+            if st.button("✅ Kuralları Onayla", use_container_width=True, type="primary"):
+                st.session_state["aktif_kurallar"] = st.session_state["gecici_kurallar"].copy()
+                st.session_state["df_sonuc"] = None
+                st.success("Kurallar onaylandı!")
     else:
-        st.info("Ürün grubu listesi için önce bir Excel dosyası yükleyin.")
+        st.info("Önce Excel dosyasını yükleyin — ürün grupları otomatik listelenecek.")
 
     st.markdown("---")
+    st.caption("Mevsimsellik Katsayıları")
     mevsimsellik_df = st.data_editor(
         pd.DataFrame({"Ay": aylar_sim, "Katsayi": default_katsayilar}),
         hide_index=True, key="mevsim_editor"
@@ -213,118 +200,107 @@ with st.sidebar:
     mevsimsellik = dict(zip(mevsimsellik_df["Ay"], mevsimsellik_df["Katsayi"]))
 
 # --- ANA AKIŞ ---
-# DÜZELTME (sıralama): Excel yüklendiğinde RPT artık otomatik hesaplanmıyor.
-# Akış artık şu sırayla ilerliyor:
-#   1) Dosya yüklenir (yalnızca ürün grubu listesini çıkarmak için okunur)
-#   2) Kullanıcı ürün grubu özel kurallarını (Cover/MOQ) tanımlar ve "Kuralları Onayla" ile kesinleştirir
-#   3) Kurallar kesinleşmeden RPT hesaplanmaz — kullanıcı açıkça "RPT'yi Hesapla" butonuna basmalı
-# Bu, kısıtların RPT hesabından ÖNCE belirlenmesini garanti eder.
-
 yuklenen_dosya = st.file_uploader("Rapor Data Excel Dosyasını Yükleyin (.xlsx)", type=['xlsx'])
 
 if yuklenen_dosya:
     df_ham = veriyi_yukle(yuklenen_dosya.getvalue())
 
     if df_ham is not None:
-        # Ürün grubu listesini session_state'e yaz (sidebar bir sonraki rerun'da bunu kullanacak)
         st.session_state["urun_gruplari"] = df_ham['Ürün Grubu'].dropna().unique().tolist()
 
-        # --- ADIM 1: Kısıtları gözden geçir ---
+        # ADIM 1 — Aktif kısıtları göster
         st.markdown("---")
-        st.header("① Uygulanacak Kısıtları Onayla")
-        st.caption("RPT hesaplanmadan önce genel parametreler ve ürün grubu özel kuralları burada gözden geçirilmeli.")
+        st.header("① Uygulanacak Kısıtlar")
+        ozet_df = pd.DataFrame(
+            [{"Ürün Grubu": "GENEL (özel kural yok)", "Min Cover (gün)": v_hedef, "MOQ (adet)": v_moq}] +
+            [{"Ürün Grubu": k["Ürün Grubu"], "Min Cover (gün)": k["Cover"], "MOQ (adet)": k["MOQ"]}
+             for k in st.session_state["aktif_kurallar"]]
+        )
+        st.dataframe(ozet_df, use_container_width=True, hide_index=True)
+        st.caption(f"Cover tavanı: **{v_tavan} gün** · Tedarik süresi: **{v_lead} ay** · Yuvarlama katı: **{v_kat}**")
 
-        ozet_kurallar = pd.DataFrame([
-            {"Ürün Grubu": "GENEL (kural tanımlanmamış gruplar)", "Cover": v_hedef, "MOQ": v_moq}
-        ] + [{"Ürün Grubu": k["Ürün Grubu"], "Cover": k["Cover"], "MOQ": k["MOQ"]} for k in st.session_state["aktif_kurallar"]])
-        st.dataframe(ozet_kurallar, use_container_width=True, hide_index=True)
-        st.caption(f"Cover tavanı: **{v_tavan} gün** — hiçbir SKU için bu tavanın üstüne RPT yazılmayacak.")
+        if (st.session_state["gecici_kurallar"] and
+                len(st.session_state["gecici_kurallar"]) != len(st.session_state["aktif_kurallar"])):
+            st.warning("⚠️ Sidebar'da henüz onaylanmamış taslak kurallar var — "
+                       "'✅ Kuralları Onayla' butonuna basılmadan bunlar hesaba dahil edilmez.")
 
-        if st.session_state["gecici_kurallar"] and len(st.session_state["gecici_kurallar"]) != len(st.session_state["aktif_kurallar"]):
-            st.warning("⚠️ Sidebar'da onaylanmamış (taslak) kurallar var. Hesaplamadan önce sidebar'dan "
-                       "'✅ Kuralları Onayla' butonuna basmayı unutmayın, aksi halde bu taslaklar hesaba dahil edilmez.")
-
-        # --- ADIM 2: Açık onay ile hesaplama tetiklenir ---
+        # ADIM 2 — Hesapla
         st.markdown("---")
         st.header("② RPT Hesapla")
-        hesapla_tetik = st.button("🚀 Yukarıdaki kısıtlarla RPT'yi Hesapla", type="primary")
-
-        if hesapla_tetik:
-            h_gun, m_moq = np.full(len(df_ham), v_hedef, float), np.full(len(df_ham), v_moq, float)
+        if st.button("🚀 Yukarıdaki kısıtlarla RPT'yi Hesapla", type="primary"):
+            h_gun = np.full(len(df_ham), v_hedef, float)
+            m_moq = np.full(len(df_ham), v_moq,   float)
             for k in st.session_state["aktif_kurallar"]:
                 mask = df_ham['Ürün Grubu'] == k["Ürün Grubu"]
-                h_gun[mask], m_moq[mask] = float(k["Cover"]), float(k["MOQ"])
+                h_gun[mask] = float(k["Cover"])
+                m_moq[mask] = float(k["MOQ"])
 
             st.session_state["df_sonuc"] = hesapla_rpt(
-                df_ham.copy(), aylar_sim, mevsimsellik, h_gun, m_moq, v_kat, lead, v_tavan
+                df_ham.copy(), aylar_sim, mevsimsellik,
+                h_gun, m_moq, v_kat, v_lead, v_tavan
             )
             st.success("✅ RPT hesaplandı.")
 
-if st.session_state.get("df_sonuc") is not None:
+# --- SONUÇLAR ---
+# df_sonuc ve v_tavan her ikisi de session_state'den okunduğu için artık AttributeError oluşmaz
+if st.session_state["df_sonuc"] is not None:
     df = st.session_state["df_sonuc"]
-    if True:
-        # YENİ: cover tavanı doğrulaması — herhangi bir ay/ SKU tavanı aştıysa uyar (beklenmedik bir durum, veri kontrolü için)
-        cover_kolonlari = [c for c in df.columns if c.endswith("_Cover_Gun")]
-        tavan_asan = (df[cover_kolonlari] > v_tavan + 0.5).any(axis=None) if cover_kolonlari else False
-        if tavan_asan:
-            st.warning(f"⚠️ Bazı SKU'larda cover günü {v_tavan} tavanının üstünde görünüyor. "
-                       f"Bu genelde açılış stoğunun zaten tavanın üzerinde olmasından kaynaklanır "
-                       f"(RPT sıfır yazılsa da mevcut stok tek başına tavanı aşabilir).")
+    tavan = st.session_state["p_tavan"]
 
-        # EKRANDA ÖZET TABLO (artık tüm periyotları kapsıyor: 2027Q4'e kadar)
-        st.markdown("---")
-        st.header("📊 Kategori Bazlı En Yüksek 5 RPT İhtiyacı")
+    # Cover tavanı doğrulama uyarısı
+    cover_cols = [c for c in df.columns if c.endswith("_Cover_Gun")]
+    if cover_cols and (df[cover_cols] > tavan + 0.5).any(axis=None):
+        st.warning(f"⚠️ Bazı SKU'larda cover {tavan} günü aşıyor. "
+                   "Genelde açılış stoğunun zaten tavanın üzerinde olmasından kaynaklanır "
+                   "(bu SKU'lara RPT = 0 yazıldı).")
 
-        ozet_listesi = []
-        for kat in df['Ana Kategori'].dropna().unique():
-            df_kat = df[df['Ana Kategori'] == kat].copy()
-            for q, aylik_liste in periyotlar.items():
-                cols_r = [f"{a}_RPT" for a in aylik_liste if f"{a}_RPT" in df_kat.columns]
-                if cols_r:
-                    df_kat[f"{q}_RPT"] = df_kat[cols_r].sum(axis=1)
-                    for _, row in df_kat[df_kat[f"{q}_RPT"] > 0].nlargest(5, f"{q}_RPT").iterrows():
-                        ozet_listesi.append({
-                            "Kategori": kat, "Ürün Grubu": row['Ürün Grubu'], "Stok Kodu": row['SKU'],
-                            "Stok Adı": row['Ürün Adı'], "Periyot": q, "Adet": row[f"{q}_RPT"]
-                        })
+    # Özet tablo
+    st.markdown("---")
+    st.header("📊 Kategori Bazlı En Yüksek 5 RPT İhtiyacı")
+    ozet = []
+    for kat in df['Ana Kategori'].dropna().unique():
+        df_k = df[df['Ana Kategori'] == kat].copy()
+        for q, aylar_q in periyotlar.items():
+            cols_r = [f"{a}_RPT" for a in aylar_q if f"{a}_RPT" in df_k.columns]
+            if cols_r:
+                df_k[f"{q}_RPT"] = df_k[cols_r].sum(axis=1)
+                for _, row in df_k[df_k[f"{q}_RPT"] > 0].nlargest(5, f"{q}_RPT").iterrows():
+                    ozet.append({"Kategori": kat, "Ürün Grubu": row['Ürün Grubu'],
+                                  "Stok Kodu": row['SKU'], "Stok Adı": row['Ürün Adı'],
+                                  "Periyot": q, "Adet": row[f"{q}_RPT"]})
+    if ozet:
+        st.dataframe(
+            pd.DataFrame(ozet).pivot_table(
+                index=['Kategori','Ürün Grubu','Stok Kodu','Stok Adı'],
+                columns='Periyot', values='Adet', fill_value=0
+            ), use_container_width=True
+        )
+    else:
+        st.info("Bu parametrelerle hiçbir üründe RPT ihtiyacı oluşmadı.")
 
-        if ozet_listesi:
-            st.dataframe(
-                pd.DataFrame(ozet_listesi).pivot_table(
-                    index=['Kategori', 'Ürün Grubu', 'Stok Kodu', 'Stok Adı'],
-                    columns='Periyot', values='Adet', fill_value=0
-                ),
-                use_container_width=True
-            )
-        else:
-            st.info("Bu parametrelerle hiçbir üründe RPT ihtiyacı oluşmadı.")
+    # Excel çıktısı
+    out_cols = (
+        ['SKU','Ana Kategori','Ürün Grubu','Ürün Adı','Acilis_Stogu','Son_3_Ay_Ort_Satis'] +
+        [f"{ay}_Kapanis_Stogu" for ay in aylar_sim] +
+        [f"{ay}_Cover_Gun"    for ay in aylar_sim] +
+        [f"{ay}_RPT"          for ay in aylar_sim]
+    )
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
+        df[out_cols].to_excel(writer, index=False, sheet_name='RPT')
+        wb = writer.book
+        ws = writer.sheets['RPT']
+        baslik_fmt = wb.add_format({'bold':True,'bg_color':'#1F4E78','font_color':'white','border':1})
+        for idx, col in enumerate(out_cols):
+            ws.write(0, idx, col, baslik_fmt)
+            ws.set_column(idx, idx, max(12, len(col)+2))
+        ws.freeze_panes(1, 4)
+        kritik_fmt = wb.add_format({'bg_color':'#FFC7CE','font_color':'#9C0006'})
+        fazla_fmt  = wb.add_format({'bg_color':'#DDEBF7','font_color':'#1F4E78'})
+        cover_start = 6 + len(aylar_sim)
+        for j in range(len(aylar_sim)):
+            ci = cover_start + j
+            ws.conditional_format(1, ci, len(df), ci, {'type':'cell','criteria':'<', 'value':30,    'format':kritik_fmt})
+            ws.conditional_format(1, ci, len(df), ci, {'type':'cell','criteria':'>', 'value':tavan, 'format':fazla_fmt})
 
-        # EXCEL ÇIKTISI (biçimlendirmeli: kritik cover günü kırmızı vurgulu)
-        cols = ['SKU', 'Ana Kategori', 'Ürün Grubu', 'Ürün Adı', 'Acilis_Stogu', 'Son_3_Ay_Ort_Satis'] + \
-               [f"{ay}_Kapanis_Stogu" for ay in aylar_sim] + [f"{ay}_Cover_Gun" for ay in aylar_sim] + [f"{ay}_RPT" for ay in aylar_sim]
-
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            df[cols].to_excel(writer, index=False, sheet_name='RPT')
-            workbook = writer.book
-            worksheet = writer.sheets['RPT']
-
-            # YENİ: kolon genişlikleri ve başlık biçimlendirmesi
-            baslik_format = workbook.add_format({'bold': True, 'bg_color': '#1F4E78', 'font_color': 'white', 'border': 1})
-            for idx, col in enumerate(cols):
-                worksheet.write(0, idx, col, baslik_format)
-                worksheet.set_column(idx, idx, max(12, len(col) + 2))
-            worksheet.freeze_panes(1, 4)  # ilk 4 kolonu ve başlık satırını dondur
-
-            # YENİ: Cover gün 30'un altındaysa kırmızı, 200'ün üstündeyse mavi vurgula (kritik / fazla stok)
-            kritik_format = workbook.add_format({'bg_color': '#FFC7CE', 'font_color': '#9C0006'})
-            fazla_format = workbook.add_format({'bg_color': '#DDEBF7', 'font_color': '#1F4E78'})
-            cover_start = 6 + len(aylar_sim)
-            for j, ay in enumerate(aylar_sim):
-                col_idx = cover_start + j
-                worksheet.conditional_format(1, col_idx, len(df), col_idx,
-                                              {'type': 'cell', 'criteria': '<', 'value': 30, 'format': kritik_format})
-                worksheet.conditional_format(1, col_idx, len(df), col_idx,
-                                              {'type': 'cell', 'criteria': '>', 'value': 200, 'format': fazla_format})
-
-        st.download_button("📥 RPT Exceli İndir", output.getvalue(), "rpt_raporu.xlsx")
+    st.download_button("📥 RPT Exceli İndir", buf.getvalue(), "rpt_raporu.xlsx")
