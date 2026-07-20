@@ -66,7 +66,7 @@ def veriyi_yukle(dosya_bytes):
     return df
 
 
-def hesapla_rpt(df, aylar_sim, mevsimsellik, h_gun, m_moq, v_kat, lead):
+def hesapla_rpt(df, aylar_sim, mevsimsellik, h_gun, m_moq, v_kat, lead, tavan_cover):
     """Her ay için RPT (sipariş ihtiyacı) ve kapanış stoğunu hesaplar.
 
     DÜZELTME (mevsimsellik): Hedef stok artık sadece 'ortalama satış' değil,
@@ -78,6 +78,12 @@ def hesapla_rpt(df, aylar_sim, mevsimsellik, h_gun, m_moq, v_kat, lead):
     Lead time mantığı: RPT, o ay için varış hedefi/adedi olarak yazılıyor
     (kullanıcının onayladığı şekilde) — sipariş, o ayda depoya varması
     planlanan miktar olarak ele alınıyor.
+
+    YENİ (cover tavanı): RPT miktarı, başlangıç stoğu + sipariş toplamı
+    'tavan_cover' gün karşılığı stoğu aşacak şekilde yazılmıyor. MOQ veya
+    katsayı yuvarlaması normalde daha yüksek bir miktar üretse bile, sipariş
+    bu tavanı aşmayacak şekilde otomatik kırpılıyor. Başlangıç stoğu tek
+    başına tavanın üstündeyse RPT = 0 yazılır.
     """
     devreden = df['Acilis_Stogu'].fillna(0).to_numpy(float)
     ort_satis = df['Son_3_Ay_Ort_Satis'].fillna(0).to_numpy(float)
@@ -91,7 +97,7 @@ def hesapla_rpt(df, aylar_sim, mevsimsellik, h_gun, m_moq, v_kat, lead):
         hedef_stok = (h_gun / 30.0) * beklenen_satis
         ihtiyac = hedef_stok - baslangic
 
-        rpt = np.where(
+        rpt_ham = np.where(
             i >= lead,
             np.where(
                 ihtiyac <= 0, 0,
@@ -99,6 +105,12 @@ def hesapla_rpt(df, aylar_sim, mevsimsellik, h_gun, m_moq, v_kat, lead):
             ),
             0
         )
+
+        # YENİ: cover tavanı kırpması — baslangic + rpt, tavan stoğunu aşamaz
+        tavan_stok = (tavan_cover / 30.0) * beklenen_satis
+        kalan_kapasite = np.maximum(tavan_stok - baslangic, 0)
+        rpt = np.maximum(np.minimum(rpt_ham, kalan_kapasite), 0)
+
         df[f'{ay}_RPT'] = rpt
         df[f'{ay}_Kapanis_Stogu'] = np.maximum(baslangic + rpt - beklenen_satis, 0)
         df[f'{ay}_Cover_Gun'] = np.where(ort_satis > 0, ((baslangic + rpt) / ort_satis) * 30, 999)
@@ -110,6 +122,7 @@ def hesapla_rpt(df, aylar_sim, mevsimsellik, h_gun, m_moq, v_kat, lead):
 # Kural yönetimi için session_state tanımları
 if "gecici_kurallar" not in st.session_state: st.session_state["gecici_kurallar"] = []
 if "aktif_kurallar" not in st.session_state: st.session_state["aktif_kurallar"] = []
+if "df_sonuc" not in st.session_state: st.session_state["df_sonuc"] = None
 
 # --- TAKVİM (18 AYLIK DÖNGÜ) ---
 bugun = datetime.now()
@@ -143,7 +156,9 @@ with st.sidebar:
         v_moq = st.number_input("Genel MOQ", 250, step=50)
         v_kat = st.number_input("Katsayı (Sipariş Yuvarlama Katı)", 50, step=10)
         lead = st.number_input("Tedarik Süresi (ay)", 3, step=1)
-        hesapla_butonu = st.form_submit_button("🔄 Parametreleri Uygula / Hesapla")
+        # YENİ: cover tavanı — hiçbir SKU'nun cover günü bu değeri aşacak şekilde RPT yazılmaz
+        v_tavan = st.number_input("Cover Tavanı (gün) — bu üstüne RPT yazılmaz", 220, step=10)
+        parametre_kaydet = st.form_submit_button("💾 Genel Parametreleri Kaydet")
 
     st.markdown("---")
     st.subheader("Ürün Grubu Özel Parametreler")
@@ -172,7 +187,8 @@ with st.sidebar:
                 cols[1].write(k["Ürün Grubu"]); cols[2].write(k["Cover"]); cols[3].write(k["MOQ"])
             if st.button("✅ Kuralları Onayla"):
                 st.session_state["aktif_kurallar"] = st.session_state["gecici_kurallar"].copy()
-                st.success("Kurallar ayarlandı!")
+                st.session_state["df_sonuc"] = None  # kurallar değişti, eski RPT sonucu artık geçersiz
+                st.success("Kurallar ayarlandı! RPT'yi yeniden hesaplamayı unutmayın.")
 
         # YENİ: Kural setlerini JSON olarak kaydet / yükle
         st.markdown("---")
@@ -197,22 +213,63 @@ with st.sidebar:
     mevsimsellik = dict(zip(mevsimsellik_df["Ay"], mevsimsellik_df["Katsayi"]))
 
 # --- ANA AKIŞ ---
+# DÜZELTME (sıralama): Excel yüklendiğinde RPT artık otomatik hesaplanmıyor.
+# Akış artık şu sırayla ilerliyor:
+#   1) Dosya yüklenir (yalnızca ürün grubu listesini çıkarmak için okunur)
+#   2) Kullanıcı ürün grubu özel kurallarını (Cover/MOQ) tanımlar ve "Kuralları Onayla" ile kesinleştirir
+#   3) Kurallar kesinleşmeden RPT hesaplanmaz — kullanıcı açıkça "RPT'yi Hesapla" butonuna basmalı
+# Bu, kısıtların RPT hesabından ÖNCE belirlenmesini garanti eder.
+
 yuklenen_dosya = st.file_uploader("Rapor Data Excel Dosyasını Yükleyin (.xlsx)", type=['xlsx'])
 
 if yuklenen_dosya:
-    df = veriyi_yukle(yuklenen_dosya.getvalue())
+    df_ham = veriyi_yukle(yuklenen_dosya.getvalue())
 
-    if df is not None:
+    if df_ham is not None:
         # Ürün grubu listesini session_state'e yaz (sidebar bir sonraki rerun'da bunu kullanacak)
-        st.session_state["urun_gruplari"] = df['Ürün Grubu'].dropna().unique().tolist()
+        st.session_state["urun_gruplari"] = df_ham['Ürün Grubu'].dropna().unique().tolist()
 
-        # Genel ve özel parametreleri array olarak eşleştir
-        h_gun, m_moq = np.full(len(df), v_hedef, float), np.full(len(df), v_moq, float)
-        for k in st.session_state["aktif_kurallar"]:
-            mask = df['Ürün Grubu'] == k["Ürün Grubu"]
-            h_gun[mask], m_moq[mask] = float(k["Cover"]), float(k["MOQ"])
+        # --- ADIM 1: Kısıtları gözden geçir ---
+        st.markdown("---")
+        st.header("① Uygulanacak Kısıtları Onayla")
+        st.caption("RPT hesaplanmadan önce genel parametreler ve ürün grubu özel kuralları burada gözden geçirilmeli.")
 
-        df = hesapla_rpt(df, aylar_sim, mevsimsellik, h_gun, m_moq, v_kat, lead)
+        ozet_kurallar = pd.DataFrame([
+            {"Ürün Grubu": "GENEL (kural tanımlanmamış gruplar)", "Cover": v_hedef, "MOQ": v_moq}
+        ] + [{"Ürün Grubu": k["Ürün Grubu"], "Cover": k["Cover"], "MOQ": k["MOQ"]} for k in st.session_state["aktif_kurallar"]])
+        st.dataframe(ozet_kurallar, use_container_width=True, hide_index=True)
+        st.caption(f"Cover tavanı: **{v_tavan} gün** — hiçbir SKU için bu tavanın üstüne RPT yazılmayacak.")
+
+        if st.session_state["gecici_kurallar"] and len(st.session_state["gecici_kurallar"]) != len(st.session_state["aktif_kurallar"]):
+            st.warning("⚠️ Sidebar'da onaylanmamış (taslak) kurallar var. Hesaplamadan önce sidebar'dan "
+                       "'✅ Kuralları Onayla' butonuna basmayı unutmayın, aksi halde bu taslaklar hesaba dahil edilmez.")
+
+        # --- ADIM 2: Açık onay ile hesaplama tetiklenir ---
+        st.markdown("---")
+        st.header("② RPT Hesapla")
+        hesapla_tetik = st.button("🚀 Yukarıdaki kısıtlarla RPT'yi Hesapla", type="primary")
+
+        if hesapla_tetik:
+            h_gun, m_moq = np.full(len(df_ham), v_hedef, float), np.full(len(df_ham), v_moq, float)
+            for k in st.session_state["aktif_kurallar"]:
+                mask = df_ham['Ürün Grubu'] == k["Ürün Grubu"]
+                h_gun[mask], m_moq[mask] = float(k["Cover"]), float(k["MOQ"])
+
+            st.session_state["df_sonuc"] = hesapla_rpt(
+                df_ham.copy(), aylar_sim, mevsimsellik, h_gun, m_moq, v_kat, lead, v_tavan
+            )
+            st.success("✅ RPT hesaplandı.")
+
+if st.session_state.get("df_sonuc") is not None:
+    df = st.session_state["df_sonuc"]
+    if True:
+        # YENİ: cover tavanı doğrulaması — herhangi bir ay/ SKU tavanı aştıysa uyar (beklenmedik bir durum, veri kontrolü için)
+        cover_kolonlari = [c for c in df.columns if c.endswith("_Cover_Gun")]
+        tavan_asan = (df[cover_kolonlari] > v_tavan + 0.5).any(axis=None) if cover_kolonlari else False
+        if tavan_asan:
+            st.warning(f"⚠️ Bazı SKU'larda cover günü {v_tavan} tavanının üstünde görünüyor. "
+                       f"Bu genelde açılış stoğunun zaten tavanın üzerinde olmasından kaynaklanır "
+                       f"(RPT sıfır yazılsa da mevcut stok tek başına tavanı aşabilir).")
 
         # EKRANDA ÖZET TABLO (artık tüm periyotları kapsıyor: 2027Q4'e kadar)
         st.markdown("---")
