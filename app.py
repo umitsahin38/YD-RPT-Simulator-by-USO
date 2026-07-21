@@ -212,7 +212,7 @@ ozet_df = pd.DataFrame(
      for k in st.session_state["aktif_kurallar"]]
 )
 st.dataframe(ozet_df, use_container_width=True, hide_index=True)
-st.caption(f"Cover tavanı: **{v_tavan} gün** · Tedarik süresi: **{v_lead} ay** · Yuvarlama katı: **{v_kat}**")
+st.caption(f"Tedarik süresi: **{v_lead} ay** · Yuvarlama katı: **{v_kat}**")
 
 onaysiz = len(st.session_state["gecici_kurallar"]) != len(st.session_state["aktif_kurallar"])
 if onaysiz:
@@ -286,32 +286,100 @@ if ozet:
 else:
     st.info("Bu parametrelerle hiçbir üründe RPT ihtiyacı oluşmadı.")
 
-# Excel çıktısı
+# --- FAZLA STOK HESABI ---
+# Kontrol noktaları: her 6 ayda bir — 202612 ve 202706 kapanış stokları
+# Formül: Kapanış Stoğu - (5 × Ort. Aylık Satış) > 0 ise fazla var
+# 5 = 150 gün / 30 = hedef cover'ın ay karşılığı
+KONTROL_AYLARI = ["202612", "202706"]
+kontrol_aylari_mevcut = [a for a in KONTROL_AYLARI if f"{a}_Kapanis_Stogu" in df.columns]
+
+fazla_stok_listesi = []
+for ay in kontrol_aylari_mevcut:
+    kap_col = f"{ay}_Kapanis_Stogu"
+    ort_satis = df['Son_3_Ay_Ort_Satis'].fillna(0)
+    hedef_stok_adeti = 5 * ort_satis          # 150 gün = 5 ay
+    fazla = df[kap_col].fillna(0) - hedef_stok_adeti
+    mask = fazla > 0
+    df_fazla = df[mask].copy()
+    df_fazla[f"{ay}_Fazla_Stok"] = fazla[mask].round(0).astype(int)
+    df_fazla[f"{ay}_Cover_Gun_Hesap"] = (df_fazla[kap_col] / ort_satis[mask].replace(0, np.nan) * 30).round(1)
+    for _, row in df_fazla.iterrows():
+        fazla_stok_listesi.append({
+            "Kontrol Ayı":        ay,
+            "Ana Kategori":       row.get("Ana Kategori", ""),
+            "Ürün Grubu":         row.get("Ürün Grubu", ""),
+            "Stok Kodu":          row["SKU"],
+            "Stok Adı":           row.get("Ürün Adı", ""),
+            "Ort. Aylık Satış":   int(ort_satis[row.name]) if ort_satis[row.name] > 0 else 0,
+            "Kapanış Stoğu":      int(row[kap_col]),
+            "Hedef Stok (5 ay)":  int(hedef_stok_adeti[row.name]),
+            "Fazla Stok (adet)":  int(row[f"{ay}_Fazla_Stok"]),
+            "Cover (gün)":        row[f"{ay}_Cover_Gun_Hesap"],
+        })
+
+df_fazla_rapor = pd.DataFrame(fazla_stok_listesi) if fazla_stok_listesi else pd.DataFrame()
+
+# Ekranda önizleme
+st.markdown("---")
+st.header("📦 Fazla Stok Tespiti (202612 & 202706)")
+if not df_fazla_rapor.empty:
+    for ay in kontrol_aylari_mevcut:
+        df_ay = df_fazla_rapor[df_fazla_rapor["Kontrol Ayı"] == ay]
+        st.subheader(f"🗓 {ay[:4]}/{ay[4:]} — {len(df_ay)} ürün fazla stok taşıyor")
+        st.dataframe(
+            df_ay.drop(columns=["Kontrol Ayı"]).sort_values("Fazla Stok (adet)", ascending=False),
+            use_container_width=True, hide_index=True
+        )
+else:
+    st.info("Her iki kontrol noktasında da 150 gün üzerinde stok taşıyan ürün bulunamadı.")
+
+# --- EXCEL ÇIKTISI (iki sayfa: RPT + FAZLA_STOK) ---
 out_cols = (
     ['SKU','Ana Kategori','Ürün Grubu','Ürün Adı','Acilis_Stogu','Son_3_Ay_Ort_Satis'] +
     [f"{ay}_Kapanis_Stogu" for ay in aylar_sim] +
     [f"{ay}_Cover_Gun"     for ay in aylar_sim] +
     [f"{ay}_RPT"           for ay in aylar_sim]
 )
-# Sadece df'de var olan kolonları al (opsiyonel aylar eksik olabilir)
 out_cols = [c for c in out_cols if c in df.columns]
+
+# Tarihli dosya adı: GG.AA.YYYY_RPT_RAPORU.xlsx
+dosya_adi = f"{datetime.now().strftime('%d.%m.%Y')}_RPT_RAPORU.xlsx"
 
 buf = io.BytesIO()
 with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
+    # Sayfa 1: RPT
     df[out_cols].to_excel(writer, index=False, sheet_name='RPT')
     wb = writer.book
-    ws = writer.sheets['RPT']
+    ws_rpt = writer.sheets['RPT']
     baslik_fmt = wb.add_format({'bold':True,'bg_color':'#1F4E78','font_color':'white','border':1})
-    for i, col in enumerate(out_cols):
-        ws.write(0, i, col, baslik_fmt)
-        ws.set_column(i, i, max(12, len(str(col)) + 2))
-    ws.freeze_panes(1, 4)
     kritik_fmt = wb.add_format({'bg_color':'#FFC7CE','font_color':'#9C0006'})
-    fazla_fmt  = wb.add_format({'bg_color':'#DDEBF7','font_color':'#1F4E78'})
+    for i, col in enumerate(out_cols):
+        ws_rpt.write(0, i, col, baslik_fmt)
+        ws_rpt.set_column(i, i, max(12, len(str(col)) + 2))
+    ws_rpt.freeze_panes(1, 4)
     cover_start = 6 + len(aylar_sim)
     for j in range(len(aylar_sim)):
         ci = cover_start + j
-        ws.conditional_format(1, ci, len(df), ci, {'type':'cell','criteria':'<','value':30,         'format':kritik_fmt})
-        ws.conditional_format(1, ci, len(df), ci, {'type':'cell','criteria':'>','value':v_tavan,    'format':fazla_fmt})
+        ws_rpt.conditional_format(1, ci, len(df), ci,
+            {'type':'cell','criteria':'<','value':30,'format':kritik_fmt})
 
-st.download_button("📥 RPT Exceli İndir", buf.getvalue(), "rpt_raporu.xlsx")
+    # Sayfa 2: FAZLA_STOK
+    if not df_fazla_rapor.empty:
+        df_fazla_rapor.to_excel(writer, index=False, sheet_name='FAZLA_STOK')
+        ws_fs = writer.sheets['FAZLA_STOK']
+        baslik_fmt2  = wb.add_format({'bold':True,'bg_color':'#C00000','font_color':'white','border':1})
+        fazla_vurgu  = wb.add_format({'bg_color':'#FFC7CE','font_color':'#9C0006','bold':True})
+        for i, col in enumerate(df_fazla_rapor.columns):
+            ws_fs.write(0, i, col, baslik_fmt2)
+            ws_fs.set_column(i, i, max(14, len(str(col)) + 2))
+        ws_fs.freeze_panes(1, 0)
+        # Fazla stok sütununu (index 8) kırmızı vurgula
+        ws_fs.conditional_format(1, 8, len(df_fazla_rapor), 8,
+            {'type':'cell','criteria':'>','value':0,'format':fazla_vurgu})
+    else:
+        # Yine de boş sayfa oluştur
+        pd.DataFrame(columns=["Kontrol Ayı","Stok Kodu","Fazla Stok (adet)"]).to_excel(
+            writer, index=False, sheet_name='FAZLA_STOK'
+        )
+
+st.download_button("📥 RPT Exceli İndir", buf.getvalue(), dosya_adi)
