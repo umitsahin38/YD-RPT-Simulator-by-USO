@@ -313,7 +313,7 @@ with st.sidebar:
 
     else:
 
-        st.info("Önce Excel yükleyin — gruplar otomatik listelenir.")
+        st.info("Önce Excel dosyanızı yükleyin — gruplar otomatik listelenecek :) .")
  
     st.markdown("---")
 
