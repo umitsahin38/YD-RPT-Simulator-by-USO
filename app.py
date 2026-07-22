@@ -88,18 +88,29 @@ def hesapla_rpt(df, aylar_sim, mevsimsellik, h_gun, m_moq, v_kat, lead):
     varsa, kod bunun üstüne bir de yeni RPT yazabiliyordu -> mallar üst üste gelip
     stok şişiyordu.
 
-    YENİ MANTIK:
+    YENİ MANTIK (v2 — birikme hatası düzeltildi):
     1) Önce o ayın DOĞAL kapanışı hesaplanır: devreden + gelen (yoldaki sipariş) - satış.
-    2) Doğal kapanış zaten hedefi (ör. 150 gün) karşılıyorsa RPT = 0 yazılır.
+       'devreden' zaten önceki ayların TÜM birikimini taşıdığı için, geçmişteki
+       her ayın etkisi buraya otomatik yansır.
+    2) Doğal kapanış o ayki hedefi (ör. 150 gün) karşılıyorsa RPT = 0 yazılır —
+       geçmişte kaç kez sipariş ertelendiği önemli değildir, önemli olan GÜNCEL
+       stok durumudur.
     3) Karşılamıyorsa ve o ay zaten yolda bir sipariş (gelen > 0) varsa, YENİ sipariş
-       eklenmez (çakışmayı önlemek için) — eksik miktar bir SONRAKİ ayın ihtiyacına
-       devredilir ve satıra açıklayıcı bir not yazılır.
+       eklenmez (çakışmayı önlemek için) ve bir not düşülür. Önemli: bu ayki açık
+       bir sonraki aya AYRI bir sayaç olarak taşınmaz — çünkü zaten devreden
+       üzerinden doğal olarak taşınıyor. Sonraki ay yeniden, o anki güncel
+       stok durumuna göre değerlendirilir. Böylece stok zaten yeterli hale
+       gelmişse (örn. yoldaki mallar birikip hedefi geçmişse) eski, artık geçerli
+       olmayan bir açık asla "toplu" şekilde tekrar sipariş edilmez.
+       (Eski v1'deki hata tam olarak buydu: 'ertelenen' adında ayrı bir kümülatif
+       değişken tutuluyordu ve devreden zaten aynı etkiyi taşıdığı için bu çift
+       sayıma yol açıyordu — 6 ay boyunca hiç gerçekleşmeyen bir açık birikip
+       sonunda tek seferde dev bir siparişe dönüşüyordu.)
     4) O ay yolda sipariş yoksa (gelen = 0) ve açık varsa, normal şekilde RPT yazılır
        (MOQ / yuvarlama katı uygulanarak).
     """
     devreden = df['Acilis_Stogu'].fillna(0).to_numpy(float)
     ort_satis = df['Son_3_Ay_Ort_Satis'].fillna(0).to_numpy(float)
-    ertelenen = np.zeros(len(df))          # bir önceki aydan devreden karşılanmamış ihtiyaç
     notlar = [[] for _ in range(len(df))]  # her satır için biriken açıklama notları
 
     for i, ay in enumerate(aylar_sim):
@@ -111,17 +122,18 @@ def hesapla_rpt(df, aylar_sim, mevsimsellik, h_gun, m_moq, v_kat, lead):
         dogal_kapanis = np.maximum(baslangic - beklenen_satis, 0)  # RPT yazılmadan önceki doğal kapanış
 
         hedef_stok = (h_gun / 30.0) * beklenen_satis
-        ihtiyac = hedef_stok - dogal_kapanis + ertelenen  # bu ayki gerçek açık + önceki aydan devreden açık
+        # DÜZELTME: artık sadece BU AYIN güncel açığı hesaplanıyor, geçmişten
+        # taşınan ayrı bir 'ertelenen' toplamı YOK. devreden zaten geçmişi taşıyor.
+        ihtiyac = hedef_stok - dogal_kapanis
 
         if i < lead:
-            # Tedarik süresi henüz dolmadı: bu ayda hiçbir sipariş yazılamaz, ihtiyaç direkt sonraki aya devreder
+            # Tedarik süresi henüz dolmadı: bu ayda hiçbir sipariş yazılamaz
             rpt = np.zeros(len(df))
-            yeni_ertelenen = np.where(ihtiyac > 0, ihtiyac, 0)
         else:
             var_olan_sevkiyat = gelen > 0  # bu ay zaten yolda bir sipariş var mı?
             ihtiyac_var = ihtiyac > 0
 
-            # Çakışma senaryosu: hem açık var hem de bu ay zaten sipariş geliyor -> yeni sipariş YAZMA, ertele
+            # Çakışma senaryosu: hem açık var hem de bu ay zaten sipariş geliyor -> yeni sipariş YAZMA
             cakisma = var_olan_sevkiyat & ihtiyac_var
 
             rpt = np.where(
@@ -132,17 +144,17 @@ def hesapla_rpt(df, aylar_sim, mevsimsellik, h_gun, m_moq, v_kat, lead):
                     0
                 )
             )
-            yeni_ertelenen = np.where(cakisma, ihtiyac, 0)
 
-            # Not oluştur: çakışma nedeniyle ertelenen her satır için
-            if i + 1 < len(aylar_sim):
-                sonraki_ay = aylar_sim[i + 1]
-                idx_list = np.where(cakisma)[0]
-                for idx in idx_list:
-                    notlar[idx].append(
-                        f"{ay} ayında {int(gelen[idx])} adet sipariş gelmesine rağmen RPT ihtiyacı "
-                        f"{sonraki_ay} ayına {int(round(yeni_ertelenen[idx]))} adet eklendi."
-                    )
+            # Not oluştur: çakışma nedeniyle bu ay sipariş yazılamayan satırlar için
+            # (yalnızca bilgi amaçlı — bu miktar sonraki aya ayrıca EKLENMİYOR,
+            # sonraki ay kendi güncel stok durumuna göre bağımsız değerlendirilecek)
+            idx_list = np.where(cakisma)[0]
+            for idx in idx_list:
+                notlar[idx].append(
+                    f"{ay} ayında {int(gelen[idx])} adet sipariş gelmesine rağmen cover hedefin altında kaldı, "
+                    f"bu ay için ek sipariş yazılmadı (mevcut sevkiyatla çakışmaması için); "
+                    f"durum sonraki ayda güncel stoğa göre tekrar değerlendirilecek."
+                )
 
         kapanis_stogu = np.maximum(dogal_kapanis + rpt, 0)
 
@@ -151,7 +163,6 @@ def hesapla_rpt(df, aylar_sim, mevsimsellik, h_gun, m_moq, v_kat, lead):
         df[f'{ay}_Cover_Gun'] = np.where(ort_satis > 0, (kapanis_stogu / ort_satis) * 30, 999)
 
         devreden = kapanis_stogu
-        ertelenen = yeni_ertelenen
 
     df['RPT_Notlari'] = [" | ".join(n) if n else "" for n in notlar]
     return df
@@ -298,9 +309,10 @@ if 'RPT_Notlari' in df.columns:
     df_notlu = df[df['RPT_Notlari'] != ""]
     if not df_notlu.empty:
         st.markdown("---")
-        st.subheader("ℹ️ Çakışan Sipariş Nedeniyle Ertelenen İhtiyaçlar")
-        st.caption("Bu ürünlerde ilgili ayda zaten yolda bir sipariş olduğu için yeni sipariş yazılmadı, "
-                   "eksik miktar bir sonraki aya devredildi.")
+        st.subheader("ℹ️ Çakışan Sevkiyat Nedeniyle Sipariş Yazılmayan Aylar")
+        st.caption("Bu aylarda cover hedefin altında kalmasına rağmen zaten yolda bir sipariş olduğu için "
+                   "ek sipariş yazılmadı. Bir sonraki ay, o anki güncel stok durumuna göre bağımsız olarak "
+                   "yeniden değerlendirilir (geçmiş açık toplu biriktirilip tek seferde sipariş edilmez).")
         st.dataframe(
             df_notlu[['SKU', 'Ürün Adı', 'Ürün Grubu', 'RPT_Notlari']].rename(
                 columns={'SKU': 'Stok Kodu', 'RPT_Notlari': 'Açıklama'}
